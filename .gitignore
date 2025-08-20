@@ -1,41 +1,65 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# Veja também: https://help.github.com/articles/ignoring-files/
 
-# dependencies
-/node_modules
-/.pnp
+# === Dependências / Gerenciadores ===
+node_modules/
+**/node_modules/
+.pnp.cjs
+.pnp.loader.mjs
 .pnp.*
 .yarn/*
 !.yarn/patches
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
+.pnpm-store/
+.npm/
 
-# testing
-/coverage
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
+# === Logs ===
+logs
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# === Next.js / build ===
+.next/
+.next/cache
+out/
+dist/
+build/
 
-# vercel
+# === Caches comuns ===
+.cache/
+.eslintcache
+.stylelintcache
+.turbo/
+
+# === Testes ===
+coverage/
+
+# === Env (mantenha .env e .env.example versionados) ===
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+# Se quiser ignorar todos os .env, descomente:
+# .env
+# .env.*
+
+# === Miscelânea / SO / Editor ===
+.DS_Store
+Thumbs.db
+*.pem
+*.tgz
+.vscode/
+.idea/
+
+# === Vercel ===
 .vercel
 
-# typescript
+# === TypeScript ===
 *.tsbuildinfo
-next-env.d.ts
+# Importante: NÃO ignore o next-env.d.ts (deixe versionado)
+# next-env.d.ts
