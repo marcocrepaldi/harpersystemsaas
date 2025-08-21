@@ -1,95 +1,173 @@
 "use client";
 
-import { useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { AppSidebar } from "@/components/app-sidebar";
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
-import { Separator } from "@/components/ui/separator";
-import { ClientSwitch } from "@/components/health/client-switch";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { toast } from "sonner";
+import * as React from 'react';
+import { useRouter } from 'next/navigation';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { apiFetch } from '@/lib/api';
+import { errorMessage } from '@/lib/errors';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Loader2 } from 'lucide-react';
 
-export default function NewBeneficiaryPage() {
-  const { clienteId } = useParams<{ clienteId: string }>();
+type BeneficiaryPayload = {
+  nomeCompleto: string;
+  cpf?: string;
+  tipo: 'TITULAR' | 'DEPENDENTE';
+  dataEntrada: string; // yyyy-mm-dd
+  valorMensalidade?: string;
+  titularId?: string;
+};
+
+type Props = {
+  mode: 'create' | 'edit';
+  clienteId: string;
+  beneficiaryId?: string;
+  initialValues?: Partial<BeneficiaryPayload>;
+  onSuccessRedirect: string;
+};
+
+// Tipo para a lista de titulares que vamos buscar
+type TitularOption = {
+  id: string;
+  nomeCompleto: string;
+};
+
+export default function BeneficiaryForm({
+  mode,
+  clienteId,
+  initialValues,
+  onSuccessRedirect,
+}: Props) {
   const router = useRouter();
-  const [nome, setNome] = useState("");
-  const [cpf, setCpf] = useState("");
-  const [tipo, setTipo] = useState<"Titular" | "Dependente">("Titular");
-  const [valor, setValor] = useState("0");
+  const qc = useQueryClient();
 
-  const onSubmit = async () => {
-    // incluir clienteId no payload
-    toast.success("Beneficiário criado (mock)");
-    router.push(`/health/${clienteId}/beneficiaries`);
+  // Estados do formulário
+  const [nomeCompleto, setNomeCompleto] = React.useState(initialValues?.nomeCompleto ?? '');
+  const [cpf, setCpf] = React.useState(initialValues?.cpf ?? '');
+  const [tipo, setTipo] = React.useState<'TITULAR' | 'DEPENDENTE' | ''>(initialValues?.tipo ?? '');
+  const [dataEntrada, setDataEntrada] = React.useState(initialValues?.dataEntrada ?? '');
+  const [valorMensalidade, setValorMensalidade] = React.useState(initialValues?.valorMensalidade ?? '');
+  const [titularId, setTitularId] = React.useState(initialValues?.titularId ?? '');
+
+  // ✅ NOVO: Hook para buscar a lista de titulares
+  const { data: titulares, isLoading: isLoadingTitulares } = useQuery<TitularOption[]>({
+    queryKey: ['beneficiaries', { clienteId, tipo: 'TITULAR' }],
+    queryFn: () =>
+      apiFetch(`/clients/${clienteId}/beneficiaries`, {
+        query: { tipo: 'TITULAR', limit: 500 }, // Busca até 500 titulares
+      }).then((res: any) => res.items), // A API retorna um objeto paginado
+    enabled: tipo === 'DEPENDENTE', // Só busca a lista se o tipo for 'Dependente'
+  });
+
+  const mutation = useMutation({
+    mutationFn: (payload: BeneficiaryPayload) => {
+      const url = `/clients/${clienteId}/beneficiaries`;
+      return apiFetch(url, { method: 'POST', body: payload });
+    },
+    onSuccess: () => {
+      toast.success('Beneficiário salvo com sucesso!');
+      qc.invalidateQueries({ queryKey: ['beneficiaries'] });
+      router.push(onSuccessRedirect);
+    },
+    onError: (e) => toast.error('Falha ao salvar beneficiário.', { description: errorMessage(e) }),
+  });
+
+  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!nomeCompleto || !tipo || !dataEntrada) {
+      toast.error('Por favor, preencha os campos obrigatórios: Nome, Tipo e Data de Entrada.');
+      return;
+    }
+    if (tipo === 'DEPENDENTE' && !titularId) {
+      toast.error('Para um Dependente, é obrigatório selecionar o Titular.');
+      return;
+    }
+    mutation.mutate({
+      nomeCompleto,
+      cpf,
+      tipo,
+      dataEntrada,
+      valorMensalidade,
+      // ✅ Adiciona o titularId ao payload se for dependente
+      titularId: tipo === 'DEPENDENTE' ? titularId : undefined,
+    });
   };
 
   return (
-    <SidebarProvider>
-      <AppSidebar />
-      <SidebarInset>
-        <header className="flex h-16 shrink-0 items-center gap-2">
-          <div className="flex items-center gap-2 px-4">
-            <SidebarTrigger className="-ml-1" />
-            <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem><BreadcrumbLink href="/health">Rota de Saúde</BreadcrumbLink></BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem><BreadcrumbLink href={`/health/${clienteId}`}>Cliente</BreadcrumbLink></BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem><BreadcrumbLink href={`/health/${clienteId}/beneficiaries`}>Beneficiários</BreadcrumbLink></BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem><BreadcrumbPage>Novo</BreadcrumbPage></BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
-          </div>
-          <div className="ml-auto pr-4"><ClientSwitch /></div>
-        </header>
+    <Card className="max-w-2xl">
+      <CardHeader>
+        <CardTitle>{mode === 'create' ? 'Novo Beneficiário' : 'Editar Beneficiário'}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="grid gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="nome">Nome Completo *</Label>
+              <Input id="nome" value={nomeCompleto} onChange={(e) => setNomeCompleto(e.target.value)} />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="cpf">CPF</Label>
+              <Input id="cpf" value={cpf} onChange={(e) => setCpf(e.target.value)} placeholder="000.000.000-00" />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="tipo">Tipo *</Label>
+              <Select value={tipo} onValueChange={(v: 'TITULAR' | 'DEPENDENTE') => { setTipo(v); setTitularId(''); }}>
+                <SelectTrigger id="tipo"><SelectValue placeholder="Selecione..." /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="TITULAR">Titular</SelectItem>
+                  <SelectItem value="DEPENDENTE">Dependente</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {/* ✅ NOVO: Campo condicional para selecionar o Titular */}
+            {tipo === 'DEPENDENTE' && (
+              <div className="grid gap-2">
+                <Label htmlFor="titular">Vincular ao Titular *</Label>
+                <Select value={titularId} onValueChange={setTitularId} disabled={isLoadingTitulares}>
+                  <SelectTrigger id="titular">
+                    <SelectValue placeholder={isLoadingTitulares ? "Carregando titulares..." : "Selecione..."} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {titulares && titulares.length > 0 ? (
+                      titulares.map(t => (
+                        <SelectItem key={t.id} value={t.id}>{t.nomeCompleto}</SelectItem>
+                      ))
+                    ) : (
+                      <div className="p-2 text-sm text-muted-foreground">Nenhum titular encontrado.</div>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
-        <div className="flex-1 p-4 pt-0">
-          <div className="bg-muted/50 rounded-xl p-6">
-            <Card className="max-w-2xl">
-              <CardHeader><CardTitle>Cadastro</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label>Nome completo</Label>
-                    <Input value={nome} onChange={(e) => setNome(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label>CPF</Label>
-                    <Input value={cpf} onChange={(e) => setCpf(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label>Tipo</Label>
-                    <Select value={tipo} onValueChange={(v) => setTipo(v as any)}>
-                      <SelectTrigger><SelectValue placeholder="Selecione" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Titular">Titular</SelectItem>
-                        <SelectItem value="Dependente">Dependente</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Valor mensalidade (R$)</Label>
-                    <Input type="number" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)} />
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-2">
-                  <Button variant="secondary" onClick={() => router.back()}>Cancelar</Button>
-                  <Button onClick={onSubmit}>Salvar</Button>
-                </div>
-              </CardContent>
-            </Card>
+            <div className="grid gap-2">
+              <Label htmlFor="dataEntrada">Data de Entrada *</Label>
+              <Input id="dataEntrada" type="date" value={dataEntrada} onChange={(e) => setDataEntrada(e.target.value)} />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="mensalidade">Valor da Mensalidade (R$)</Label>
+              <Input id="mensalidade" type="number" step="0.01" value={valorMensalidade} onChange={(e) => setValorMensalidade(e.target.value)} placeholder="123.45" />
+            </div>
           </div>
-        </div>
-      </SidebarInset>
-    </SidebarProvider>
+          <div className="flex items-center gap-2">
+            <Button type="submit" disabled={mutation.isPending}>
+              {mutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Salvando...
+                </>
+              ) : 'Salvar'}
+            </Button>
+            <Button type="button" variant="outline" onClick={() => router.back()} disabled={mutation.isPending}>
+              Cancelar
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   );
 }

@@ -42,6 +42,7 @@ import { MoreVertical, SlidersHorizontal, Search, X, Upload, PlusCircle, Loader2
 // ---------- Tipos ----------
 type PageResult<T> = { items: T[]; page: number; limit: number; total: number };
 
+// ✅ TIPO ATUALIZADO com todos os novos campos
 type BeneficiaryRow = {
   id: string;
   nomeCompleto: string;
@@ -50,6 +51,12 @@ type BeneficiaryRow = {
   valorMensalidade?: number | null;
   status: "Ativo" | "Inativo";
   titularId?: string | null;
+  matricula?: string | null;
+  carteirinha?: string | null;
+  sexo?: string | null;
+  dataNascimento?: string | null;
+  plano?: string | null;
+  centroCusto?: string | null;
 };
 
 type UploadResult = {
@@ -59,12 +66,14 @@ type UploadResult = {
   total: number;
 }
 
-// ---------- Colunas ----------
+// ✅ LISTA DE COLUNAS ATUALIZADA
 type ColumnKey =
   | "select"
   | "nomeCompleto"
   | "cpf"
   | "tipo"
+  | "plano"
+  | "matricula"
   | "valorMensalidade"
   | "status"
   | "actions";
@@ -74,6 +83,8 @@ const ALL_COLUMNS: { key: ColumnKey; label: string; default?: boolean }[] = [
   { key: "nomeCompleto", label: "Nome", default: true },
   { key: "cpf", label: "CPF", default: true },
   { key: "tipo", label: "Tipo", default: true },
+  { key: "plano", label: "Plano", default: true },
+  { key: "matricula", label: "Matrícula", default: false }, // Por padrão, escondido
   { key: "valorMensalidade", label: "Mensalidade (R$)", default: true },
   { key: "status", label: "Status", default: true },
   { key: "actions", label: "Ações", default: true },
@@ -189,13 +200,9 @@ function BeneficiariesPageInner() {
   }, [visibleCols]);
   
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
-  
-  // ✅ NOVO: Estado para controlar o AlertDialog de erros
   const [errorDetails, setErrorDetails] = React.useState<any[] | null>(null);
-  
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  // ✅ LÓGICA DE UPLOAD ATUALIZADA COM FEEDBACK DETALHADO
   const uploadMutation = useMutation({
     mutationFn: (formData: FormData) =>
       apiFetch<UploadResult>(`/clients/${encodeURIComponent(clienteId)}/beneficiaries/upload`, {
@@ -268,17 +275,16 @@ function BeneficiariesPageInner() {
   const [bulkOpen, setBulkOpen] = React.useState(false);
   const deleteMany = useMutation({
     mutationFn: async (ids: string[]) => {
-      await Promise.all(
-        ids.map((id) =>
-          apiFetch<void>(
-            `/clients/${encodeURIComponent(clienteId)}/beneficiaries/${encodeURIComponent(id)}`,
-            { method: "DELETE" },
-          ),
-        ),
+      const deletePromises = ids.map((id) =>
+        apiFetch<void>(
+          `/clients/${encodeURIComponent(clienteId)}/beneficiaries/${encodeURIComponent(id)}`,
+          { method: "DELETE" },
+        )
       );
+      await Promise.all(deletePromises);
     },
     onSuccess: () => {
-      toast.success("Beneficiários removidos.");
+      toast.success(`${selected.size} beneficiário(s) removido(s).`);
       setSelected(new Set());
       qc.invalidateQueries({ queryKey: ["beneficiaries"] });
       setBulkOpen(false);
@@ -355,7 +361,6 @@ function BeneficiariesPageInner() {
               </BreadcrumbList>
             </Breadcrumb>
           </div>
-
           <div className="ml-auto pr-4 flex items-center gap-2">
             <form onSubmit={onSubmitSearch} className="flex items-center gap-2">
               <div className="relative">
@@ -369,75 +374,38 @@ function BeneficiariesPageInner() {
               </div>
               <Button type="submit" variant="secondary" size="sm">Buscar</Button>
               {search && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => {
-                    setSearchText("");
-                    pushParams({ search: undefined, page: 1 });
-                  }}
-                >
-                  <X className="h-4 w-4" />
-                  <span className="sr-only">Limpar busca</span>
+                <Button type="button" variant="ghost" size="icon" onClick={() => { setSearchText(""); pushParams({ search: undefined, page: 1 }); }}>
+                  <X className="h-4 w-4" /><span className="sr-only">Limpar busca</span>
                 </Button>
               )}
             </form>
-
             <AlertDialog open={bulkOpen} onOpenChange={setBulkOpen}>
               <AlertDialogTrigger asChild>
-                <Button type="button" variant="outline" size="sm" disabled={selected.size === 0}>
-                  Excluir ({selected.size})
-                </Button>
+                <Button type="button" variant="outline" size="sm" disabled={selected.size === 0}>Excluir ({selected.size})</Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Excluir beneficiários selecionados</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Esta ação não pode ser desfeita. {selected.size} registro(s) serão removidos.
-                  </AlertDialogDescription>
+                  <AlertDialogDescription>Esta ação não pode ser desfeita. {selected.size} registro(s) serão removidos.</AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel disabled={deleteMany.isPending}>Cancelar</AlertDialogCancel>
-                  <AlertDialogAction
-                    className="bg-red-600 hover:bg-red-700"
-                    disabled={deleteMany.isPending}
-                    onClick={() => deleteMany.mutate([...selected])}
-                  >
+                  <AlertDialogAction className="bg-red-600 hover:bg-red-700" disabled={deleteMany.isPending} onClick={() => deleteMany.mutate([...selected])}>
                     {deleteMany.isPending ? "Excluindo..." : "Excluir"}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-            
-            <Button 
-              variant="outline" 
-              onClick={handleImportClick} 
-              disabled={uploadMutation.isPending}
-            >
-              {uploadMutation.isPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Processando...
-                </>
-              ) : (
-                <>
-                  <Upload className="mr-2 h-4 w-4" />
-                  Importar Arquivo
-                </>
-              )}
+            <Button variant="outline" onClick={handleImportClick} disabled={uploadMutation.isPending}>
+              {uploadMutation.isPending ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processando...</>) : (<><Upload className="mr-2 h-4 w-4" /> Importar Arquivo</>)}
             </Button>
             <Button onClick={() => router.push(`/health/${encodeURIComponent(clienteId)}/beneficiaries/new${qs}`)}>
               <PlusCircle className="mr-2 h-4 w-4" />
               Novo Beneficiário
             </Button>
-
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <SlidersHorizontal className="mr-2 h-4 w-4" />
-                  Colunas
-                </Button>
+                <Button variant="outline" size="sm"><SlidersHorizontal className="mr-2 h-4 w-4" />Colunas</Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel>Visibilidade</DropdownMenuLabel>
@@ -448,9 +416,7 @@ function BeneficiariesPageInner() {
                     checked={visibleCols.has(c.key)}
                     onCheckedChange={() => toggleCol(c.key)}
                     disabled={c.key === "select"}
-                  >
-                    {c.label || c.key}
-                  </DropdownMenuCheckboxItem>
+                  >{c.label || c.key}</DropdownMenuCheckboxItem>
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
@@ -470,9 +436,7 @@ function BeneficiariesPageInner() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Beneficiários</CardTitle>
-                <p className="text-sm text-muted-foreground">
-                  Lista vinculada ao cliente <code className="px-1 rounded bg-muted">{clienteId}</code>.
-                </p>
+                <p className="text-sm text-muted-foreground">Lista vinculada ao cliente <code className="px-1 rounded bg-muted">{clienteId}</code>.</p>
               </CardHeader>
               <CardContent>
                 {isFetching && !data ? (
@@ -483,12 +447,8 @@ function BeneficiariesPageInner() {
                 ) : isError ? (
                   <div className="space-y-3">
                     <p className="text-sm text-destructive">Erro ao carregar beneficiários.</p>
-                    <p className="text-xs text-muted-foreground break-all">
-                      {errorMessage(error)}
-                    </p>
-                    <Button variant="outline" size="sm" onClick={() => refetch()}>
-                      Tentar novamente
-                    </Button>
+                    <p className="text-xs text-muted-foreground break-all">{errorMessage(error)}</p>
+                    <Button variant="outline" size="sm" onClick={() => refetch()}>Tentar novamente</Button>
                   </div>
                 ) : (
                   <>
@@ -496,18 +456,12 @@ function BeneficiariesPageInner() {
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            {isVisible("select") && (
-                              <TableHead className="w-10">
-                                <Checkbox
-                                  checked={allSelected}
-                                  onCheckedChange={(v) => toggleSelectAll(Boolean(v))}
-                                  aria-label="Selecionar todos"
-                                />
-                              </TableHead>
-                            )}
+                            {isVisible("select") && <TableHead className="w-10"><Checkbox checked={allSelected} onCheckedChange={(v) => toggleSelectAll(Boolean(v))} aria-label="Selecionar todos"/></TableHead>}
                             {isVisible("nomeCompleto") && <TableHead className="w-[28%]">Nome</TableHead>}
                             {isVisible("cpf") && <TableHead>CPF</TableHead>}
                             {isVisible("tipo") && <TableHead>Tipo</TableHead>}
+                            {isVisible("plano") && <TableHead>Plano</TableHead>}
+                            {isVisible("matricula") && <TableHead>Matrícula</TableHead>}
                             {isVisible("valorMensalidade") && <TableHead>Mensalidade (R$)</TableHead>}
                             {isVisible("status") && <TableHead>Status</TableHead>}
                             {isVisible("actions") && <TableHead className="text-right">Ações</TableHead>}
@@ -520,62 +474,27 @@ function BeneficiariesPageInner() {
                               <TableRow
                                 key={b.id}
                                 className="cursor-pointer hover:bg-accent/50 even:bg-muted/30"
-                                onClick={() =>
-                                  router.push(
-                                    `/health/${encodeURIComponent(clienteId)}/beneficiaries/${encodeURIComponent(b.id)}${qs}`,
-                                  )
-                                }
+                                onClick={() => router.push(`/health/${encodeURIComponent(clienteId)}/beneficiaries/${encodeURIComponent(b.id)}${qs}`)}
                               >
-                                {isVisible("select") && (
-                                  <TableCell onClick={(e) => e.stopPropagation()} className="w-10">
-                                    <Checkbox
-                                      checked={checked}
-                                      onCheckedChange={(v) => toggleOne(b.id, Boolean(v))}
-                                      aria-label={`Selecionar ${b.nomeCompleto}`}
-                                    />
-                                  </TableCell>
-                                )}
-                                {isVisible("nomeCompleto") && (
-                                  <TableCell className="font-medium">{b.nomeCompleto}</TableCell>
-                                )}
+                                {isVisible("select") && <TableCell onClick={(e) => e.stopPropagation()} className="w-10"><Checkbox checked={checked} onCheckedChange={(v) => toggleOne(b.id, Boolean(v))} aria-label={`Selecionar ${b.nomeCompleto}`}/></TableCell>}
+                                {isVisible("nomeCompleto") && <TableCell className="font-medium">{b.nomeCompleto}</TableCell>}
                                 {isVisible("cpf") && <TableCell>{b.cpf ?? "—"}</TableCell>}
                                 {isVisible("tipo") && <TableCell>{b.tipo}</TableCell>}
-                                {isVisible("valorMensalidade") && (
-                                  <TableCell>
-                                    {b.valorMensalidade != null
-                                      ? b.valorMensalidade.toLocaleString("pt-BR", {
-                                          style: "currency",
-                                          currency: "BRL",
-                                        })
-                                      : "—"}
-                                  </TableCell>
-                                )}
+                                {isVisible("plano") && <TableCell>{b.plano ?? "—"}</TableCell>}
+                                {isVisible("matricula") && <TableCell>{b.matricula ?? "—"}</TableCell>}
+                                {isVisible("valorMensalidade") && <TableCell>{b.valorMensalidade != null ? b.valorMensalidade.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "—"}</TableCell>}
                                 {isVisible("status") && <TableCell>{b.status}</TableCell>}
-                                {isVisible("actions") && (
-                                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                                    <RowActions id={b.id} clienteId={clienteId} />
-                                  </TableCell>
-                                )}
+                                {isVisible("actions") && <TableCell className="text-right" onClick={(e) => e.stopPropagation()}><RowActions id={b.id} clienteId={clienteId} /></TableCell>}
                               </TableRow>
                             );
                           })}
                         </TableBody>
                       </Table>
                     </div>
-
                     <div className="mt-3 flex items-center gap-2">
-                      <Button variant="outline" size="sm" onClick={() => setPage(currentPage - 1)} disabled={currentPage <= 1}>
-                        Anterior
-                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => setPage(currentPage - 1)} disabled={currentPage <= 1}>Anterior</Button>
                       <span className="text-sm">Página {currentPage} de {totalPages}</span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setPage(currentPage + 1)}
-                        disabled={currentPage >= totalPages}
-                      >
-                        Próxima
-                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => setPage(currentPage + 1)} disabled={currentPage >= totalPages}>Próxima</Button>
                     </div>
                   </>
                 )}
@@ -588,18 +507,14 @@ function BeneficiariesPageInner() {
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Erros na Importação</AlertDialogTitle>
-              <AlertDialogDescription>
-                As seguintes linhas do arquivo não puderam ser importadas.
-              </AlertDialogDescription>
+              <AlertDialogDescription>As seguintes linhas do arquivo não puderam ser importadas.</AlertDialogDescription>
             </AlertDialogHeader>
             <div className="max-h-60 overflow-y-auto pr-4 text-sm">
               <ul className="space-y-2">
                 {errorDetails?.map((err, index) => (
                   <li key={index} className="rounded-md border bg-muted p-2">
                     <p className="font-semibold">Linha {err.line}: <span className="text-red-500">{err.message}</span></p>
-                    <pre className="mt-1 whitespace-pre-wrap break-all text-xs text-muted-foreground">
-                      {JSON.stringify(err.data)}
-                    </pre>
+                    <pre className="mt-1 whitespace-pre-wrap break-all text-xs text-muted-foreground">{JSON.stringify(err.data)}</pre>
                   </li>
                 ))}
               </ul>
