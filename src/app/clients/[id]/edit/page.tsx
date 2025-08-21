@@ -15,160 +15,141 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 
-import ClientForm, { type ClientPayload } from '../_components/client-form';
+import ClientForm, { type ClientPayload } from '../../_components/client-form';
 import { apiFetch } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
 
-/* ----------------------------- Tipos do backend ----------------------------- */
-type PersonTypeDto = 'PF' | 'PJ';
-type ClientStatusDto = 'lead' | 'prospect' | 'active' | 'inactive';
-
-type AddressDto = {
-  zip?: string | null;
-  street?: string | null;
-  number?: string | null;
-  complement?: string | null;
-  district?: string | null;
-  city?: string | null;
-  state?: string | null;
-  country?: string | null;
-};
-
-type PrimaryContactDto = {
-  name?: string | null;
-  role?: string | null;
-  email?: string | null;
-  phone?: string | null;
-  notes?: string | null;
-};
-
+// ✅ TIPO CORRIGIDO: Agora inclui todos os campos do backend
 type ClientFromApi = {
   id: string;
   name: string;
   email?: string | null;
   phone?: string | null;
   document?: string | null;
-  birthDate?: string | null;
-  personType: PersonTypeDto;
-  status: ClientStatusDto;
   notes?: string | null;
+  deletedAt?: string | null;
 
-  // legados já aninhados pelo backend (nós montamos isso no service)
-  address?: AddressDto;
-  primaryContact?: PrimaryContactDto;
+  personType?: 'PF' | 'PJ';
+  status?: 'lead' | 'prospect' | 'active' | 'inactive';
+  serviceSlugs?: string[];
 
-  // PF
+  // Campos de Endereço (legado)
+  addressZip?: string | null;
+  addressStreet?: string | null;
+  addressNumber?: string | null;
+  addressComplement?: string | null;
+  addressDistrict?: string | null;
+  addressCity?: string | null;
+  addressState?: string | null;
+  addressCountry?: string | null;
+
+  // Campos de Contato Principal (legado)
+  primaryContactName?: string | null;
+  primaryContactRole?: string | null;
+  primaryContactEmail?: string | null;
+  primaryContactPhone?: string | null;
+  primaryContactNotes?: string | null;
+
+  // Campos de PF
   pfRg?: string | null;
+  birthDate?: string | null; // O Prisma retorna como string ISO
   pfMaritalStatus?: string | null;
   pfProfession?: string | null;
   pfIsPEP?: boolean | null;
 
-  // PJ
+  // Campos de PJ
   pjCorporateName?: string | null;
   pjTradeName?: string | null;
   pjCnpj?: string | null;
   pjStateRegistration?: string | null;
   pjMunicipalRegistration?: string | null;
   pjCNAE?: string | null;
-  pjFoundationDate?: string | null;
+  pjFoundationDate?: string | null; // O Prisma retorna como string ISO
   pjRepName?: string | null;
   pjRepCpf?: string | null;
   pjRepEmail?: string | null;
   pjRepPhone?: string | null;
-
-  // normalizações
-  serviceSlugs?: string[]; // quando includeRels inclui 'services'
-  tagSlugs?: string[];     // quando includeRels inclui 'tags'
-  tags?: string[] | null;  // legado (array simples)
-
-  deletedAt?: string | null;
 };
 
-function undef<T>(v: T | null | undefined): T | undefined {
-  return v == null ? undefined : (v as T);
-}
-
-/** Converte o payload da API para o formato inicial esperado pelo ClientForm */
+// ✅ FUNÇÃO CORRIGIDA: Agora mapeia todos os campos para o formulário
 function toInitialValues(api: ClientFromApi): Partial<ClientPayload> {
+  const digits = (api.document || '').replace(/\D+/g, '');
+  const isPJ = api.personType === 'PJ' || (!api.personType && digits.length > 11);
+
+  // Formata as datas para o input type="date" (yyyy-mm-dd)
+  const birthDate = api.birthDate ? api.birthDate.substring(0, 10) : '';
+  const foundationDate = api.pjFoundationDate ? api.pjFoundationDate.substring(0, 10) : '';
+
   return {
-    personType: api.personType || 'PF',
-    status: api.status || 'active',
+    personType: api.personType ?? (isPJ ? 'PJ' : 'PF'),
+    status: api.status ?? 'active',
+    name: api.name ?? '',
+    document: api.document ?? '',
+    email: api.email ?? '',
+    phone: api.phone ?? '',
+    notes: api.notes ?? '',
 
-    name: api.name,
-    document: undef(api.document),
-    email: undef(api.email),
-    phone: undef(api.phone),
-    notes: undef(api.notes),
-
-    // PF (somente se vier algo)
-    pf: (api.pfRg || api.pfMaritalStatus || api.pfProfession || typeof api.pfIsPEP === 'boolean')
-      ? {
-          rg: undef(api.pfRg),
-          maritalStatus: undef(api.pfMaritalStatus),
-          profession: undef(api.pfProfession),
-          isPEP: typeof api.pfIsPEP === 'boolean' ? api.pfIsPEP : undefined,
-          birthDate: undef(api.birthDate), // se o seu ClientForm aceita birthDate em string ISO
-        }
-      : undefined,
-
-    // PJ
-    pj: (api.pjCorporateName || api.pjTradeName || api.pjCnpj || api.pjCNAE || api.pjFoundationDate || api.pjRepName)
-      ? {
-          corporateName: undef(api.pjCorporateName),
-          tradeName: undef(api.pjTradeName),
-          cnpj: undef(api.pjCnpj),
-          stateRegistration: undef(api.pjStateRegistration),
-          municipalRegistration: undef(api.pjMunicipalRegistration),
-          cnae: undef(api.pjCNAE),
-          foundationDate: undef(api.pjFoundationDate),
-          legalRepresentative: (api.pjRepName || api.pjRepCpf || api.pjRepEmail || api.pjRepPhone)
-            ? {
-                name: undef(api.pjRepName),
-                cpf: undef(api.pjRepCpf),
-                email: undef(api.pjRepEmail),
-                phone: undef(api.pjRepPhone),
-              }
-            : undefined,
-        }
-      : undefined,
-
-    // aninhados (legado mapeado no backend)
-    address: {
-      zip: undef(api.address?.zip),
-      street: undef(api.address?.street),
-      number: undef(api.address?.number),
-      complement: undef(api.address?.complement),
-      district: undef(api.address?.district),
-      city: undef(api.address?.city),
-      state: undef(api.address?.state),
-      country: undef(api.address?.country),
+    // Mapeamento dos campos de PF
+    pf: {
+      rg: api.pfRg ?? '',
+      birthDate: birthDate,
+      maritalStatus: api.pfMaritalStatus ?? '',
+      profession: api.pfProfession ?? '',
+      isPEP: api.pfIsPEP ?? false,
     },
-    primaryContact: (api.primaryContact &&
-      (api.primaryContact.name || api.primaryContact.email || api.primaryContact.phone || api.primaryContact.role || api.primaryContact.notes))
-      ? {
-          name: undef(api.primaryContact.name),
-          role: undef(api.primaryContact.role),
-          email: undef(api.primaryContact.email),
-          phone: undef(api.primaryContact.phone),
-          notes: undef(api.primaryContact.notes),
-        }
-      : undefined,
 
-    // relações normalizadas
-    serviceSlugs: api.serviceSlugs ?? undefined,
-    tags: api.tagSlugs ?? api.tags ?? undefined, // preferir tags normalizadas; cair para legado se necessário
+    // Mapeamento dos campos de PJ
+    pj: {
+      corporateName: api.pjCorporateName ?? '',
+      tradeName: api.pjTradeName ?? '',
+      cnpj: api.pjCnpj ?? '',
+      stateRegistration: api.pjStateRegistration ?? '',
+      municipalRegistration: api.pjMunicipalRegistration ?? '',
+      cnae: api.pjCNAE ?? '',
+      foundationDate: foundationDate,
+      legalRepresentative: {
+        name: api.pjRepName ?? '',
+        cpf: api.pjRepCpf ?? '',
+        email: api.pjRepEmail ?? '',
+        phone: api.pjRepPhone ?? '',
+      },
+    },
+
+    // Mapeamento do Contato Principal
+    primaryContact: {
+      name: api.primaryContactName ?? '',
+      role: api.primaryContactRole ?? '',
+      email: api.primaryContactEmail ?? '',
+      phone: api.primaryContactPhone ?? '',
+      notes: api.primaryContactNotes ?? '',
+    },
+
+    // Mapeamento do Endereço
+    address: {
+      zip: api.addressZip ?? '',
+      street: api.addressStreet ?? '',
+      number: api.addressNumber ?? '',
+      complement: api.addressComplement ?? '',
+      district: api.addressDistrict ?? '',
+      city: api.addressCity ?? '',
+      state: api.addressState ?? '',
+      country: api.addressCountry ?? 'BR',
+    },
+
+    serviceSlugs: api.serviceSlugs ?? [],
   };
 }
+
 
 export default function ClientEditPage(): React.ReactElement {
   return (
     <Suspense
-      fallback={
+      fallback={(
         <div className="p-4">
           <Skeleton className="mb-3 h-6 w-48" />
           <Skeleton className="h-72 w-full" />
         </div>
-      }
+      )}
     >
       <ClientEditPageInner />
     </Suspense>
@@ -194,9 +175,9 @@ function ClientEditPageInner(): React.ReactElement {
       if (!id) return;
       setLoading(true);
       try {
-        // ✅ pede payload completo para pré-preencher o form de edição
+        // includeRels default=true no backend, mas aqui forçamos para garantir serviços/tags
         const data = await apiFetch<ClientFromApi>(`/clients/${encodeURIComponent(id)}`, {
-          query: { includeRels: 'true' }, // IMPORTANTE: enviar string, não boolean
+          query: { includeRels: 'true' },
         });
         if (mounted) setClient(data);
       } catch (e: unknown) {
