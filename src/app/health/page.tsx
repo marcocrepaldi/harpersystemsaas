@@ -1,4 +1,3 @@
-// src/app/health/page.tsx
 "use client";
 
 import * as React from "react";
@@ -58,12 +57,17 @@ function HealthSelectClientPageInner() {
   // Busca (estado controlado)
   const [searchText, setSearchText] = React.useState(search);
 
-  // Listagem de clientes (reaproveita o endpoint /clients)
+  // ✅ ALTERAÇÃO AQUI: Adicionado o filtro `service: 'health'` na chamada da API
   const { data, isFetching, isError, error, refetch } = useQuery<PageResult<ClientRow>>({
     queryKey: ["health-select-client", { page, limit, search }],
     queryFn: async () => {
       const res = await apiFetch<PageResult<ClientRow> | ClientRow[]>("/clients", {
-        query: { page, limit, search: search || undefined },
+        query: {
+          page,
+          limit,
+          search: search || undefined,
+          service: 'HEALTH', // Filtra apenas clientes com serviço de saúde
+        },
       });
       if (Array.isArray(res)) {
         return { items: res, page, limit, total: res.length };
@@ -162,7 +166,8 @@ function HealthSelectClientPageInner() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Selecione um cliente</CardTitle>
+                {/* ✅ ALTERAÇÃO AQUI: Título mais claro para o usuário */}
+                <CardTitle className="text-base">Selecione um cliente com apólice de saúde</CardTitle>
               </CardHeader>
               <CardContent>
                 {isFetching && !data ? (
@@ -180,7 +185,7 @@ function HealthSelectClientPageInner() {
                   </div>
                 ) : items.length === 0 ? (
                   <div className="space-y-2">
-                    <p className="text-sm text-muted-foreground">Nenhum cliente encontrado.</p>
+                    <p className="text-sm text-muted-foreground">Nenhum cliente com apólice de saúde foi encontrado.</p>
                     <Button asChild size="sm">
                       <Link href="/clients/new">Cadastrar cliente</Link>
                     </Button>

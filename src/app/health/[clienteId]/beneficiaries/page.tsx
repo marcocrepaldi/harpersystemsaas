@@ -32,11 +32,12 @@ import { Input } from "@/components/ui/input";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader,
-  AlertDialogTitle, AlertDialogTrigger,
+  AlertDialogTitle,
+  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
 // Ícones
-import { MoreVertical, SlidersHorizontal, Search, X } from "lucide-react";
+import { MoreVertical, SlidersHorizontal, Search, X, Upload, PlusCircle, Loader2 } from "lucide-react";
 
 // ---------- Tipos ----------
 type PageResult<T> = { items: T[]; page: number; limit: number; total: number };
@@ -48,8 +49,15 @@ type BeneficiaryRow = {
   tipo: "Titular" | "Dependente";
   valorMensalidade?: number | null;
   status: "Ativo" | "Inativo";
-  titularId?: string | null; // se dependente
+  titularId?: string | null;
 };
+
+type UploadResult = {
+  created: number;
+  updated: number;
+  errors: any[];
+  total: number;
+}
 
 // ---------- Colunas ----------
 type ColumnKey =
@@ -84,12 +92,12 @@ function RowActions({ id, clienteId }: { id: string; clienteId: string }) {
   const del = useMutation({
     mutationFn: async () =>
       apiFetch<void>(
-        `/health/${encodeURIComponent(clienteId)}/beneficiaries/${encodeURIComponent(id)}`,
+        `/clients/${encodeURIComponent(clienteId)}/beneficiaries/${encodeURIComponent(id)}`,
         { method: "DELETE" },
       ),
     onSuccess: () => {
       toast.success("Beneficiário removido.");
-      qc.invalidateQueries({ queryKey: ["beneficiaries", { clienteId }] });
+      qc.invalidateQueries({ queryKey: ["beneficiaries"] });
       setConfirmOpen(false);
     },
     onError: (e: unknown) =>
@@ -160,16 +168,13 @@ function BeneficiariesPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const qs = searchParams?.toString() ? `?${searchParams.toString()}` : "";
+  const qc = useQueryClient();
 
-  // Query params
   const page = Number(searchParams.get("page") ?? "1");
   const limit = Number(searchParams.get("limit") ?? "10");
   const search = searchParams.get("search") ?? "";
-
-  // Busca
+  
   const [searchText, setSearchText] = React.useState(search);
-
-  // Visibilidade de colunas
   const [visibleCols, setVisibleCols] = React.useState<Set<ColumnKey>>(() => {
     try {
       const raw = localStorage.getItem(COLS_LS_KEY);
@@ -182,54 +187,91 @@ function BeneficiariesPageInner() {
       localStorage.setItem(COLS_LS_KEY, JSON.stringify([...visibleCols]));
     } catch {}
   }, [visibleCols]);
-
-  // Seleção em massa
+  
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  
+  // ✅ NOVO: Estado para controlar o AlertDialog de erros
+  const [errorDetails, setErrorDetails] = React.useState<any[] | null>(null);
+  
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  // Listagem
+  // ✅ LÓGICA DE UPLOAD ATUALIZADA COM FEEDBACK DETALHADO
+  const uploadMutation = useMutation({
+    mutationFn: (formData: FormData) =>
+      apiFetch<UploadResult>(`/clients/${encodeURIComponent(clienteId)}/beneficiaries/upload`, {
+        method: 'POST',
+        body: formData,
+      }),
+    onSuccess: (data) => {
+      const { created = 0, updated = 0, errors = [] } = data;
+      
+      if (errors.length > 0) {
+        toast.warning(`Importação concluída com ${errors.length} erro(s).`, {
+          description: `Criados: ${created}, Atualizados: ${updated}. Clique para ver os detalhes.`,
+          duration: 10000,
+          action: {
+            label: 'Ver Detalhes',
+            onClick: () => setErrorDetails(errors),
+          }
+        });
+      } else {
+        toast.success('Arquivo processado com sucesso!', {
+          description: `Criados: ${created}, Atualizados: ${updated}.`,
+        });
+      }
+      qc.invalidateQueries({ queryKey: ['beneficiaries'] });
+    },
+    onError: (e) => toast.error('Falha ao importar arquivo.', { description: errorMessage(e) }),
+  });
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const formData = new FormData();
+      formData.append('file', file);
+      uploadMutation.mutate(formData);
+    }
+    event.target.value = '';
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
   const { data, isFetching, isError, error, refetch } = useQuery<PageResult<BeneficiaryRow>>({
     queryKey: ["beneficiaries", { clienteId, page, limit, search }],
     queryFn: async () => {
       const res = await apiFetch<PageResult<BeneficiaryRow> | BeneficiaryRow[]>(
-        `/health/${encodeURIComponent(clienteId)}/beneficiaries`,
+        `/clients/${encodeURIComponent(clienteId)}/beneficiaries`,
         { query: { page, limit, search: search || undefined } },
       );
-
-      if (Array.isArray(res)) {
-        return { items: res, page, limit, total: res.length };
-      }
-      if (res && Array.isArray((res as PageResult<BeneficiaryRow>).items)) {
-        return res as PageResult<BeneficiaryRow>;
-      }
+      if (Array.isArray(res)) return { items: res, page, limit, total: res.length };
+      if (res && Array.isArray((res as PageResult<BeneficiaryRow>).items)) return res;
       throw new Error("Resposta inválida da API de beneficiários.");
     },
     staleTime: 10_000,
     gcTime: 5 * 60_000,
   });
 
-  // Dados calculados
   const items: BeneficiaryRow[] = React.useMemo(() => data?.items ?? [], [data]);
   const currentPage = data?.page ?? page;
   const currentLimit = data?.limit ?? limit;
   const total = data?.total ?? items.length;
   const totalPages = Math.max(1, Math.ceil((total || 1) / (currentLimit || 10)));
 
-  // Limpa seleção fora da página atual
   React.useEffect(() => {
     if (!items.length && selected.size === 0) return;
     const idsOnPage = new Set(items.map((i) => i.id));
     setSelected((prev) => new Set([...prev].filter((id) => idsOnPage.has(id))));
   }, [items, selected.size]);
 
-  // Deletar em massa
-  const qc = useQueryClient();
   const [bulkOpen, setBulkOpen] = React.useState(false);
   const deleteMany = useMutation({
     mutationFn: async (ids: string[]) => {
       await Promise.all(
         ids.map((id) =>
           apiFetch<void>(
-            `/health/${encodeURIComponent(clienteId)}/beneficiaries/${encodeURIComponent(id)}`,
+            `/clients/${encodeURIComponent(clienteId)}/beneficiaries/${encodeURIComponent(id)}`,
             { method: "DELETE" },
           ),
         ),
@@ -238,14 +280,13 @@ function BeneficiariesPageInner() {
     onSuccess: () => {
       toast.success("Beneficiários removidos.");
       setSelected(new Set());
-      qc.invalidateQueries({ queryKey: ["beneficiaries", { clienteId }] });
+      qc.invalidateQueries({ queryKey: ["beneficiaries"] });
       setBulkOpen(false);
     },
     onError: (e: unknown) =>
       toast.error("Falha ao remover beneficiários.", { description: errorMessage(e) }),
   });
 
-  // Helpers de query string
   const pushParams = (updates: Record<string, string | number | undefined>) => {
     const p = new URLSearchParams(searchParams.toString());
     Object.entries(updates).forEach(([k, v]) => {
@@ -260,7 +301,6 @@ function BeneficiariesPageInner() {
     pushParams({ search: searchText || undefined, page: 1 });
   };
 
-  // Colunas
   const isVisible = (key: ColumnKey) => visibleCols.has(key);
   const toggleCol = (key: ColumnKey) => {
     setVisibleCols((prev) => {
@@ -276,7 +316,6 @@ function BeneficiariesPageInner() {
     });
   };
 
-  // Seleção
   const idsThisPage = React.useMemo(() => items.map((i) => i.id), [items]);
   const allSelected = idsThisPage.length > 0 && idsThisPage.every((id) => selected.has(id));
   const toggleSelectAll = (checked: boolean) => {
@@ -370,8 +409,26 @@ function BeneficiariesPageInner() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-
+            
+            <Button 
+              variant="outline" 
+              onClick={handleImportClick} 
+              disabled={uploadMutation.isPending}
+            >
+              {uploadMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Processando...
+                </>
+              ) : (
+                <>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Importar Arquivo
+                </>
+              )}
+            </Button>
             <Button onClick={() => router.push(`/health/${encodeURIComponent(clienteId)}/beneficiaries/new${qs}`)}>
+              <PlusCircle className="mr-2 h-4 w-4" />
               Novo Beneficiário
             </Button>
 
@@ -399,6 +456,14 @@ function BeneficiariesPageInner() {
             </DropdownMenu>
           </div>
         </header>
+
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleFileChange}
+          className="hidden"
+          accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
+        />
 
         <div className="flex flex-1 flex-col p-4 pt-0">
           <div className="bg-muted/50 flex-1 rounded-xl p-6">
@@ -518,6 +583,33 @@ function BeneficiariesPageInner() {
             </Card>
           </div>
         </div>
+        
+        <AlertDialog open={!!errorDetails} onOpenChange={(open) => !open && setErrorDetails(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Erros na Importação</AlertDialogTitle>
+              <AlertDialogDescription>
+                As seguintes linhas do arquivo não puderam ser importadas.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="max-h-60 overflow-y-auto pr-4 text-sm">
+              <ul className="space-y-2">
+                {errorDetails?.map((err, index) => (
+                  <li key={index} className="rounded-md border bg-muted p-2">
+                    <p className="font-semibold">Linha {err.line}: <span className="text-red-500">{err.message}</span></p>
+                    <pre className="mt-1 whitespace-pre-wrap break-all text-xs text-muted-foreground">
+                      {JSON.stringify(err.data)}
+                    </pre>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogAction onClick={() => setErrorDetails(null)}>Fechar</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
       </SidebarInset>
     </SidebarProvider>
   );
