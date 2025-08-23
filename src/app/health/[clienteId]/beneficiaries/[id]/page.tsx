@@ -1,28 +1,77 @@
-"use client";
+import { AppSidebar } from '@/components/app-sidebar';
+import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
+import { Separator } from '@/components/ui/separator';
+import BeneficiaryForm from './beneficiary-form';
+import { apiFetch } from '@/lib/api';
+import { notFound } from 'next/navigation';
+import { ClientSwitch } from '@/components/health/client-switch';
+import { unstable_noStore as noStore } from 'next/cache';
 
-import { useRouter, useParams } from "next/navigation";
-import { useState } from "react";
-import { AppSidebar } from "@/components/app-sidebar";
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
-import { Separator } from "@/components/ui/separator";
-import { ClientSwitch } from "@/components/health/client-switch";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { toast } from "sonner";
+type BeneficiaryData = {
+  id: string;
+  clientId?: string; // pode vir da API, mas não vai para o form
+  status?: string;
+  createdAt?: string;
+  updatedAt?: string;
 
-export default function EditBeneficiaryPage() {
-  const { clienteId, id } = useParams<{ clienteId: string; id: string }>();
-  const router = useRouter();
-  const [nome, setNome] = useState("Fulano da Silva");
-  const [valor, setValor] = useState("299.90");
+  nomeCompleto: string;
+  cpf?: string | null;
+  tipo: 'TITULAR' | 'DEPENDENTE';
+  dataEntrada: string;
+  dataNascimento?: string | null;
+  valorMensalidade?: string | null;
+  titularId?: string | null;
+  matricula?: string | null;
+  carteirinha?: string | null;
+  sexo?: 'M' | 'F' | null;
+  plano?: string | null;
+  centroCusto?: string | null;
+  faixaEtaria?: string | null;
+  estado?: string | null;
+  contrato?: string | null;
+  comentario?: string | null;
+};
 
-  const onSave = () => {
-    toast.success(`Beneficiário ${id} atualizado (mock)`);
-    router.push(`/health/${clienteId}/beneficiaries`);
-  };
+// helper: formata para <input type="date" />
+const toDateInput = (v?: string | null) => (v ? String(v).slice(0, 10) : '');
+
+export default async function EditBeneficiaryPage({
+  params,
+}: {
+  // Next 15: params é assíncrono
+  params: Promise<{ clienteId: string; id: string }>;
+}) {
+  noStore();
+
+  const { clienteId, id } = await params;
+
+  let beneficiaryData: BeneficiaryData;
+  try {
+    beneficiaryData = await apiFetch<BeneficiaryData>(`/clients/${clienteId}/beneficiaries/${id}`);
+  } catch {
+    return notFound();
+  }
+
+  // Remover campos proibidos do state inicial (evita vazar no PATCH)
+  const {
+    id: _id,
+    clientId: _clientId,
+    status: _status,
+    createdAt: _createdAt,
+    updatedAt: _updatedAt,
+    ...safe
+  } = beneficiaryData as any;
+
+  const initialValues = {
+    ...safe,
+    dataEntrada: toDateInput(safe.dataEntrada),
+    dataNascimento: toDateInput(safe.dataNascimento ?? undefined),
+    valorMensalidade: safe.valorMensalidade ?? '',
+    sexo: safe.sexo ?? undefined,
+    titularId: safe.titularId ?? undefined,
+    tipo: safe.tipo ?? 'TITULAR',
+  } as const;
 
   return (
     <SidebarProvider>
@@ -34,41 +83,28 @@ export default function EditBeneficiaryPage() {
             <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
             <Breadcrumb>
               <BreadcrumbList>
-                <BreadcrumbItem><BreadcrumbLink href="/health">Rota de Saúde</BreadcrumbLink></BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem><BreadcrumbLink href={`/health/${clienteId}`}>Cliente</BreadcrumbLink></BreadcrumbItem>
+                <BreadcrumbItem><BreadcrumbLink href="/health">Saúde</BreadcrumbLink></BreadcrumbItem>
                 <BreadcrumbSeparator />
                 <BreadcrumbItem><BreadcrumbLink href={`/health/${clienteId}/beneficiaries`}>Beneficiários</BreadcrumbLink></BreadcrumbItem>
                 <BreadcrumbSeparator />
-                <BreadcrumbItem><BreadcrumbPage>Editar</BreadcrumbPage></BreadcrumbItem>
+                <BreadcrumbItem><BreadcrumbPage>{beneficiaryData.nomeCompleto}</BreadcrumbPage></BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
           </div>
-          <div className="ml-auto pr-4"><ClientSwitch /></div>
+          <div className="ml-auto pr-4">
+            <ClientSwitch clienteId={clienteId} />
+          </div>
         </header>
 
         <div className="flex-1 p-4 pt-0">
           <div className="bg-muted/50 rounded-xl p-6">
-            <Card className="max-w-2xl">
-              <CardHeader><CardTitle>Informações</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label>Nome completo</Label>
-                    <Input value={nome} onChange={(e) => setNome(e.target.value)} />
-                  </div>
-                  <div>
-                    <Label>Valor mensalidade (R$)</Label>
-                    <Input type="number" step="0.01" value={valor} onChange={(e) => setValor(e.target.value)} />
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-2">
-                  <Button variant="secondary" onClick={() => router.back()}>Voltar</Button>
-                  <Button onClick={onSave}>Salvar</Button>
-                </div>
-              </CardContent>
-            </Card>
+            <BeneficiaryForm
+              mode="edit"
+              clienteId={clienteId}
+              beneficiaryId={id}
+              initialValues={initialValues}
+              onSuccessRedirect={`/health/${clienteId}/beneficiaries`}
+            />
           </div>
         </div>
       </SidebarInset>
