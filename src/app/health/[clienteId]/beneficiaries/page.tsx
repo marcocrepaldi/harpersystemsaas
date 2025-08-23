@@ -448,7 +448,7 @@ function BeneficiariesPageInner() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {stats.totalTitulares} <span className="text-base font-normal">T</span> / {stats.totalDependentes} <span className="text-base font-normal">Dependentes</span>
+                  {stats.totalTitulares} <span className="text-base font-normal">Titulares</span> / {stats.totalDependentes} <span className="text-base font-normal">Dependentes</span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">Total de vidas ativas</p>
               </CardContent>
