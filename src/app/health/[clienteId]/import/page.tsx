@@ -10,7 +10,14 @@ import { errorMessage } from "@/lib/errors";
 // Layout & UI
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import { Separator } from "@/components/ui/separator";
 import { ClientSwitch } from "@/components/health/client-switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,42 +26,61 @@ import { UploadDropzone } from "./upload-dropzone";
 export default function ImportInvoicePage() {
   const { clienteId } = useParams<{ clienteId: string }>();
   const router = useRouter();
+  const abortRef = React.useRef<AbortController | null>(null);
 
-  // Mutation para upload da fatura
   const uploadInvoiceMutation = useMutation({
     mutationFn: async (file: File) => {
+      if (!clienteId) throw new Error("Cliente inválido.");
+      abortRef.current?.abort();
+      abortRef.current = new AbortController();
+
       const formData = new FormData();
       formData.append("file", file);
 
-      // Se quiser permitir escolher a competência no futuro:
-      // const mes = "2025-08"; formData.append('mes', mes); // alternativa via query
-
-      // IMPORTANTE: apiFetch deve prefixar com /api (ex.: http://localhost:3001/api)
       return apiFetch<any>(`/clients/${clienteId}/invoices/upload`, {
         method: "POST",
         body: formData,
+        signal: abortRef.current.signal,
       });
     },
-    onSuccess: (data) => {
-      toast.success(data?.ok ? "Fatura importada com sucesso!" : (data?.message ?? "Fatura processada."), {
-        description: data?.totals
-          ? `Processadas: ${data.totals.processed} / ${data.totals.totalRows}.`
-          : data?.processedRows
-          ? `${data.processedRows} linhas salvas.`
-          : undefined,
-      });
+onSuccess: (data) => {
+  const okMsg = data?.message || "Fatura importada com sucesso!";
+  const parts: string[] = [];
 
-      // Redireciona para a tela de conciliação
-      router.push(`/health/${clienteId}/reconciliation`);
-    },
+  if (typeof data?.processedRows === "number" && typeof data?.totalRows === "number") {
+    parts.push(`Processadas: ${data.processedRows}/${data.totalRows}`);
+  }
+  if (data?.detectedColumns) {
+    const d = data.detectedColumns;
+    parts.push(
+      `Detectado -> nome: ${d.nome ?? "—"}, cpf: ${d.cpf ?? "—"}, valor: ${d.valor ?? "—"}`
+    );
+  }
+  toast.success(okMsg, { description: parts.join(" • ") || undefined });
+  router.push(`/health/${clienteId}/reconciliation`);
+},
+
     onError: (e) => {
-      toast.error("Falha ao importar fatura.", { description: errorMessage(e) });
+      const msg = errorMessage(e);
+      if (msg?.toLowerCase().includes("nenhum arquivo")) {
+        toast.error("Nenhum arquivo enviado.");
+      } else {
+        toast.error("Falha ao importar fatura.", { description: msg });
+      }
     },
   });
 
-  const handleFileAccepted = (file: File | null) => {
-    if (file) uploadInvoiceMutation.mutate(file);
-  };
+  React.useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
+
+  const handleFileAccepted = React.useCallback(
+    (file: File | null) => {
+      if (!file || uploadInvoiceMutation.isPending) return;
+      uploadInvoiceMutation.mutate(file);
+    },
+    [uploadInvoiceMutation],
+  );
 
   return (
     <SidebarProvider>
@@ -66,15 +92,23 @@ export default function ImportInvoicePage() {
             <Separator orientation="vertical" className="mr-2 data-[orientation=vertical]:h-4" />
             <Breadcrumb>
               <BreadcrumbList>
-                <BreadcrumbItem><BreadcrumbLink href="/health">Rota de Saúde</BreadcrumbLink></BreadcrumbItem>
+                <BreadcrumbItem>
+                  <BreadcrumbLink href="/health">Rota de Saúde</BreadcrumbLink>
+                </BreadcrumbItem>
                 <BreadcrumbSeparator />
-                <BreadcrumbItem><BreadcrumbLink href={`/health/${clienteId}`}>Cliente</BreadcrumbLink></BreadcrumbItem>
+                <BreadcrumbItem>
+                  <BreadcrumbLink href={`/health/${clienteId}`}>Cliente</BreadcrumbLink>
+                </BreadcrumbItem>
                 <BreadcrumbSeparator />
-                <BreadcrumbItem><BreadcrumbPage>Importar Fatura</BreadcrumbPage></BreadcrumbItem>
+                <BreadcrumbItem>
+                  <BreadcrumbPage>Importar Fatura</BreadcrumbPage>
+                </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
           </div>
-          <div className="ml-auto pr-4"><ClientSwitch /></div>
+          <div className="ml-auto pr-4">
+            <ClientSwitch />
+          </div>
         </header>
 
         <div className="flex-1 p-4 pt-0">
@@ -85,7 +119,9 @@ export default function ImportInvoicePage() {
                 <p className="text-sm text-muted-foreground pt-1">
                   Envie o arquivo CSV/XLS/XLSX (ex.: <em>Hapvida.csv</em>) para iniciar a conciliação.
                   <br />
-                  <span className="text-xs">Layout esperado: colunas de beneficiário, CPF e valor (o sistema tenta mapear variações automaticamente).</span>
+                  <span className="text-xs">
+                    Layout esperado: colunas de beneficiário, CPF e valor. O sistema tenta mapear variações automaticamente.
+                  </span>
                 </p>
               </CardHeader>
               <CardContent>

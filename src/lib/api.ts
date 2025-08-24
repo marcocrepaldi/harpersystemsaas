@@ -10,6 +10,8 @@ export type ApiFetchOptions = {
   skipAuthRedirect?: boolean;
   /** Permite trocar a base puntualmente (padrão vem do .env) */
   baseUrl?: string;
+  /** Suporte a AbortController */
+  signal?: AbortSignal | null;
 };
 
 const DEFAULT_BASE =
@@ -92,6 +94,10 @@ function ensureSerializedBody(body: any, headers: Headers) {
     (typeof Blob !== "undefined" && body instanceof Blob) ||
     body instanceof ArrayBuffer
   ) {
+    // ⚠️ Não setar Content-Type para FormData: o browser define boundary automaticamente
+    if (isFormLike(body) && headers.has("Content-Type")) {
+      headers.delete("Content-Type");
+    }
     return body;
   }
 
@@ -123,6 +129,7 @@ export async function apiFetch<T = unknown>(
     query,
     skipAuthRedirect = false,
     baseUrl,
+    signal, // <- novo
   } = opts;
 
   const url = buildUrl(path, baseUrl, query);
@@ -148,6 +155,7 @@ export async function apiFetch<T = unknown>(
     body: ["GET", "HEAD"].includes(method.toUpperCase()) ? undefined : serializedBody,
     credentials: "same-origin",
     cache: "no-store",
+    signal, // <- repassa o AbortSignal
   });
 
   // 204 / sem body
