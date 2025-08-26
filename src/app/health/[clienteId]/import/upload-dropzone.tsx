@@ -10,14 +10,14 @@ type Props = {
   maxSizeMB?: number;
 };
 
-const ACCEPT_MIME = [
+const ALLOWED_MIME_TYPES = [
   "text/csv",
   "application/csv",
-  "application/vnd.ms-excel", // .csv (alguns browsers) e .xls
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", // .xlsx
-] as const;
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+];
 
-const ACCEPT_EXT = [".csv", ".xls", ".xlsx"] as const;
+const ALLOWED_EXTENSIONS = [".csv", ".xls", ".xlsx"];
 
 export function UploadDropzone({
   onFileAccepted,
@@ -32,22 +32,20 @@ export function UploadDropzone({
 
   const validateAndSend = React.useCallback(
     (file: File | null) => {
-      if (!file) return;
-      if (isUploading) return;
+      if (!file || isUploading) return;
 
-      // tamanho
       if (file.size > maxBytes) {
         alert(`Arquivo muito grande. Máx: ${maxSizeMB} MB`);
         return;
       }
-
-      // extensão e mimetype (mimetype pode vir inconsistente, então basta UMA das verificações passar)
+      
       const name = file.name.toLowerCase();
       const type = (file.type || "").toLowerCase();
-      const okExt = ACCEPT_EXT.some((ext) => name.endsWith(ext));
-      const okMime = ACCEPT_MIME.includes(type as (typeof ACCEPT_MIME)[number]);
+      
+      const isMimeTypeValid = ALLOWED_MIME_TYPES.includes(type);
+      const isExtensionValid = ALLOWED_EXTENSIONS.some((ext) => name.endsWith(ext));
 
-      if (!okExt && !okMime) {
+      if (!isMimeTypeValid && !isExtensionValid) {
         alert("Tipo de arquivo não suportado. Envie CSV, XLS ou XLSX.");
         return;
       }
@@ -70,6 +68,8 @@ export function UploadDropzone({
     }
   };
 
+  const acceptString = [...ALLOWED_MIME_TYPES, ...ALLOWED_EXTENSIONS].join(",");
+
   return (
     <div
       className={cn(
@@ -89,8 +89,7 @@ export function UploadDropzone({
         setDragging(false);
         if (isUploading) return;
 
-        // pega apenas o primeiro arquivo
-        const file = e.dataTransfer.files && e.dataTransfer.files[0] ? e.dataTransfer.files[0] : null;
+        const file = e.dataTransfer.files?.[0] ?? null;
         validateAndSend(file);
       }}
       role="button"
@@ -101,11 +100,10 @@ export function UploadDropzone({
       <input
         ref={inputRef}
         type="file"
-        accept={[...ACCEPT_MIME, ...ACCEPT_EXT].join(",")}
+        accept={acceptString}
         onChange={(e) => {
-          const file = e.target.files && e.target.files[0] ? e.target.files[0] : null;
+          const file = e.target.files?.[0] ?? null;
           validateAndSend(file);
-          // limpa para permitir re-seleção do mesmo arquivo
           e.currentTarget.value = "";
         }}
         className="hidden"
@@ -121,11 +119,11 @@ export function UploadDropzone({
           Aceita: CSV, XLS, XLSX • Máx {maxSizeMB} MB
         </p>
 
-        {fileName ? (
+        {fileName && (
           <p className="text-xs text-muted-foreground truncate">
             Selecionado: <span className="font-medium">{fileName}</span>
           </p>
-        ) : null}
+        )}
 
         <div className="pt-2">
           <Button type="button" variant="secondary" disabled={isUploading}>

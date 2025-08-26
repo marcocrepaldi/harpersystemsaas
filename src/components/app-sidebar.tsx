@@ -1,23 +1,28 @@
-"use client"
+"use client";
 
-import * as React from "react"
+import * as React from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
-  BookOpen,
-  Bot,
+  BarChart3,
+  Building2,
   Command,
-  Frame,
+  FileText,
+  FileSpreadsheet,
+  HeartPulse,
+  LayoutDashboard,
   LifeBuoy,
-  Map,
-  PieChart,
-  Send,
   Settings2,
-  SquareTerminal,
-} from "lucide-react"
+  ShieldAlert,
+  Tags,
+  Users,
+  Wallet,
+} from "lucide-react";
 
-import { NavMain } from "@/components/nav-main"
-import { NavProjects } from "@/components/nav-projects"
-import { NavSecondary } from "@/components/nav-secondary"
-import { NavUser } from "@/components/nav-user"
+import { NavMain } from "@/components/nav-main";
+import { NavProjects } from "@/components/nav-projects";
+import { NavSecondary } from "@/components/nav-secondary";
+import { NavUser } from "@/components/nav-user";
 import {
   Sidebar,
   SidebarContent,
@@ -26,160 +31,200 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-} from "@/components/ui/sidebar"
+} from "@/components/ui/sidebar";
 
-const data = {
-  user: {
-    name: "shadcn",
-    email: "m@example.com",
-    avatar: "/avatars/shadcn.jpg",
-  },
-  navMain: [
+/**
+ * Helper para marcar como ativo via pathname.
+ */
+function useSidebarData() {
+  const pathname = usePathname();
+
+  const isActive = (url?: string) =>
+    !!url && (pathname === url || pathname.startsWith(`${url}/`));
+
+  const sectionActive = (urls: Array<string | undefined>) =>
+    urls.some((u) => isActive(u));
+
+  const navMain = [
     {
-      title: "Playground",
-      url: "#",
-      icon: SquareTerminal,
-      isActive: true,
+      title: "Dashboard",
+      url: "/dashboard",
+      icon: LayoutDashboard,
+      isActive: isActive("/dashboard"),
+      items: [],
+    },
+
+    // --- CRM / Cadastros ---
+    {
+      title: "CRM • Cadastros",
+      url: "/clients",
+      icon: Users,
+      isActive: sectionActive([
+        "/clients",
+        "/contacts",
+        "/companies",
+        "/tags",
+      ]),
       items: [
-        {
-          title: "History",
-          url: "#",
-        },
-        {
-          title: "Starred",
-          url: "#",
-        },
-        {
-          title: "Settings",
-          url: "#",
-        },
+        { title: "Clientes", url: "/clients" },
+        { title: "Contatos", url: "/contacts" },
+        { title: "Empresas (PJ)", url: "/companies" },
+        { title: "Tags", url: "/tags" },
       ],
     },
+
+    // --- Saúde (beneficiários, faturas, conciliação) ---
     {
-      title: "Models",
-      url: "#",
-      icon: Bot,
+      title: "Saúde",
+      url: "/health",
+      icon: HeartPulse,
+      isActive: sectionActive([
+        "/health/beneficiaries",
+        "/health/invoices",
+        "/health/reconciliation",
+      ]),
       items: [
-        {
-          title: "Genesis",
-          url: "#",
-        },
-        {
-          title: "Explorer",
-          url: "#",
-        },
-        {
-          title: "Quantum",
-          url: "#",
-        },
+        { title: "Beneficiários", url: "/health/beneficiaries" },
+        { title: "Faturas", url: "/health/invoices" },
+        { title: "Conciliação", url: "/health/reconciliation" },
       ],
     },
+
+    // --- Apólices / Propostas ---
     {
-      title: "Documentation",
-      url: "#",
-      icon: BookOpen,
+      title: "Apólices",
+      url: "/policies",
+      icon: FileText,
+      isActive: sectionActive(["/policies", "/quotes"]),
       items: [
-        {
-          title: "Introduction",
-          url: "#",
-        },
-        {
-          title: "Get Started",
-          url: "#",
-        },
-        {
-          title: "Tutorials",
-          url: "#",
-        },
-        {
-          title: "Changelog",
-          url: "#",
-        },
+        { title: "Apólices", url: "/policies" },
+        { title: "Propostas & Cotações", url: "/quotes" },
       ],
     },
+
+    // --- Sinistros ---
     {
-      title: "Settings",
-      url: "#",
+      title: "Sinistros",
+      url: "/claims",
+      icon: ShieldAlert,
+      isActive: isActive("/claims"),
+      items: [
+        { title: "Lista de sinistros", url: "/claims" },
+        { title: "Abertura de sinistro", url: "/claims/new" },
+      ],
+    },
+
+    // --- Financeiro (comissões, cobranças etc) ---
+    {
+      title: "Financeiro",
+      url: "/finance",
+      icon: Wallet,
+      isActive: sectionActive([
+        "/finance/billing",
+        "/finance/payments",
+        "/finance/commissions",
+      ]),
+      items: [
+        { title: "Faturamento", url: "/finance/billing" },
+        { title: "Pagamentos/Boletos", url: "/finance/payments" },
+        { title: "Comissões", url: "/finance/commissions" },
+      ],
+    },
+
+    // --- Relatórios ---
+    {
+      title: "Relatórios",
+      url: "/reports",
+      icon: BarChart3,
+      isActive: sectionActive([
+        "/reports/clients",
+        "/reports/health",
+        "/reports/finance",
+      ]),
+      items: [
+        { title: "Clientes", url: "/reports/clients" },
+        { title: "Saúde", url: "/reports/health" },
+        { title: "Financeiro", url: "/reports/finance" },
+      ],
+    },
+
+    // --- Administração / Configurações ---
+    {
+      title: "Administração",
+      url: "/settings",
       icon: Settings2,
+      isActive: sectionActive([
+        "/settings",
+        "/settings/users",
+        "/settings/billing",
+        "/settings/limits",
+        "/settings/services",
+        "/settings/branches",
+      ]),
       items: [
-        {
-          title: "General",
-          url: "#",
-        },
-        {
-          title: "Team",
-          url: "#",
-        },
-        {
-          title: "Billing",
-          url: "#",
-        },
-        {
-          title: "Limits",
-          url: "#",
-        },
+        { title: "Configurações gerais", url: "/settings" },
+        { title: "Usuários & Permissões", url: "/settings/users" },
+        { title: "Cobrança", url: "/settings/billing" },
+        { title: "Limites", url: "/settings/limits" },
+        { title: "Serviços", url: "/settings/services" },
+        { title: "Filiais", url: "/settings/branches" },
       ],
     },
-  ],
-  navSecondary: [
-    {
-      title: "Support",
-      url: "#",
-      icon: LifeBuoy,
-    },
-    {
-      title: "Feedback",
-      url: "#",
-      icon: Send,
-    },
-  ],
-  projects: [
-    {
-      name: "Design Engineering",
-      url: "#",
-      icon: Frame,
-    },
-    {
-      name: "Sales & Marketing",
-      url: "#",
-      icon: PieChart,
-    },
-    {
-      name: "Travel",
-      url: "#",
-      icon: Map,
-    },
-  ],
+  ];
+
+  const navSecondary = [
+    { title: "Suporte", url: "/support", icon: LifeBuoy },
+    { title: "Feedback", url: "/feedback", icon: FileSpreadsheet },
+  ];
+
+  const projects = [
+    // Você pode usar isso como "Atalhos"
+    { name: "Importar Beneficiários", url: "/health/beneficiaries/import", icon: Building2 },
+    { name: "Importar Fatura", url: "/health/invoices/upload", icon: FileSpreadsheet },
+    { name: "Gerenciar Tags", url: "/tags", icon: Tags },
+  ];
+
+  return { navMain, navSecondary, projects };
 }
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
+  const { navMain, navSecondary, projects } = useSidebarData();
+
   return (
     <Sidebar variant="inset" {...props}>
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
-              <a href="#">
+              <Link href="/dashboard">
                 <div className="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg">
                   <Command className="size-4" />
                 </div>
                 <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-medium">Acme Inc</span>
-                  <span className="truncate text-xs">Enterprise</span>
+                  <span className="truncate font-medium">Harper</span>
+                  <span className="truncate text-xs">Corretora • Enterprise</span>
                 </div>
-              </a>
+              </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
+
       <SidebarContent>
-        <NavMain items={data.navMain} />
-        <NavProjects projects={data.projects} />
-        <NavSecondary items={data.navSecondary} className="mt-auto" />
+        <NavMain items={navMain} />
+        <NavProjects projects={projects} />
+        <NavSecondary className="mt-auto" items={navSecondary} />
       </SidebarContent>
+
       <SidebarFooter>
-        <NavUser user={data.user} />
+        <NavUser
+          user={{
+            name: "Usuário",
+            email: "user@example.com",
+            avatar: "/avatars/user.jpg",
+          }}
+        />
       </SidebarFooter>
     </Sidebar>
-  )
+  );
 }

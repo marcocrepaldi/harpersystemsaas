@@ -1,30 +1,31 @@
-"use client";
+'use client';
 
-import * as React from "react";
-import { Suspense } from "react";
-import Link from "next/link";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { apiFetch } from "@/lib/api";
-import { errorMessage } from "@/lib/errors";
+import * as React from 'react';
+import { Suspense } from 'react';
+import Link from 'next/link';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { apiFetch } from '@/lib/api';
+import { errorMessage } from '@/lib/errors';
 
 // Layout & UI
-import { AppSidebar } from "@/components/app-sidebar";
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
-import { Separator } from "@/components/ui/separator";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Checkbox } from "@/components/ui/checkbox";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuCheckboxItem, DropdownMenuLabel } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { AppSidebar } from '@/components/app-sidebar';
+import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
+import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
+import { Separator } from '@/components/ui/separator';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Checkbox } from '@/components/ui/checkbox';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuCheckboxItem, DropdownMenuLabel } from '@/components/ui/dropdown-menu';
+import { Input } from '@/components/ui/input';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // ✅ NOVO: para os novos filtros
 
-// ⬇️ IMPORT DO GRÁFICO (ajuste o caminho conforme onde você salvou o componente)
+// Gráfico
 import { GraficoIdadeBeneficiarios } from "./graficoIdadeBeneficiarios";
 
 // Ícones
@@ -34,38 +35,73 @@ import { MoreVertical, SlidersHorizontal, Search, X, Upload, PlusCircle, Loader2
 type PageResult<T> = { items: T[]; page: number; limit: number; total: number };
 
 type BeneficiaryRow = {
-  id: string; nomeCompleto: string; cpf?: string | null; tipo: "Titular" | "Dependente";
-  dataEntrada: string; dataNascimento?: string | null; idade?: number | null; faixaEtaria?: string | null;
-  status: "Ativo" | "Inativo"; titularId?: string | null; matricula?: string | null; carteirinha?: string | null;
-  sexo?: string | null; plano?: string | null; centroCusto?: string | null; valorMensalidade?: number | null;
-  estado?: string | null; contrato?: string | null; comentario?: string | null;
+  id: string;
+  nomeCompleto: string;
+  cpf?: string | null;
+  tipo: "Titular" | "Filho" | "Cônjuge";
+  dataEntrada: string;
+  dataNascimento?: string | null;
+  idade?: number | null;
+  valorMensalidade?: number | null;
+  titularId?: string | null;
+  titularNome?: string | null;
+  matricula?: string | null;
+  carteirinha?: string | null;
+  sexo?: string | null;
+  plano?: string | null;
+  centroCusto?: string | null;
+  faixaEtaria?: string | null;
+  estado?: string | null;
+  contrato?: string | null;
+  comentario?: string | null;
+  regimeCobranca?: string | null;
+  motivoMovimento?: string | null;
+  observacoes?: string | null;
+  status: "Ativo" | "Inativo";
 };
 
 type UploadResult = { created: number; updated: number; inactivated: number; errors: any[]; total: number; }
 
-// ✅ LISTA DE COLUNAS FINAL E COMPLETA
 type ColumnKey =
-  | "select" | "nomeCompleto" | "cpf" | "tipo" | "dataNascimento" | "idade" | "faixaEtaria"
-  | "plano" | "matricula" | "valorMensalidade" | "status" | "comentario" | "actions";
+  | "select" | "nomeCompleto" | "cpf" | "tipo"
+  | "dataEntrada" | "dataNascimento" | "idade" | "faixaEtaria"
+  | "plano" | "centroCusto" | "matricula" | "carteirinha"
+  | "valorMensalidade" | "estado" | "contrato" | "sexo"
+  | "titular" | "regimeCobranca" | "motivoMovimento" | "observacoes"
+  | "status" | "comentario" | "actions";
 
-const ALL_COLUMNS: { key: ColumnKey; label: string; default?: boolean }[] = [
+// ✅ MELHORIA: Agrupando as colunas em categorias para o dropdown
+const ALL_COLUMNS: { key: ColumnKey; label: string; default?: boolean; category?: string; }[] = [
   { key: "select", label: "", default: true },
-  { key: "nomeCompleto", label: "Nome", default: true },
-  { key: "cpf", label: "CPF", default: true },
-  { key: "tipo", label: "Tipo", default: true },
-  { key: "dataNascimento", label: "Nascimento", default: false },
-  { key: "idade", label: "Idade", default: true },
-  { key: "faixaEtaria", label: "Faixa Etária", default: true },
-  { key: "plano", label: "Plano", default: true },
-  { key: "matricula", label: "Matrícula", default: false },
-  { key: "valorMensalidade", label: "Mensalidade", default: true },
-  { key: "status", label: "Status", default: true },
-  { key: "comentario", label: "Observação/Ação", default: false },
-  { key: "actions", label: "Ações", default: true },
+  { key: "nomeCompleto", label: "Nome", default: true, category: "Dados Principais" },
+  { key: "cpf", label: "CPF", default: true, category: "Dados Principais" },
+  { key: "tipo", label: "Tipo", default: true, category: "Dados Principais" },
+  { key: "status", label: "Status", default: true, category: "Dados Principais" },
+  { key: "actions", label: "Ações", default: true, category: "Dados Principais" },
+
+  { key: "plano", label: "Plano", default: true, category: "Detalhes do Beneficiário" },
+  { key: "faixaEtaria", label: "Faixa Etária", default: true, category: "Detalhes do Beneficiário" },
+  { key: "idade", label: "Idade", default: true, category: "Detalhes do Beneficiário" },
+  { key: "sexo", label: "Sexo", default: false, category: "Detalhes do Beneficiário" },
+  { key: "dataNascimento", label: "Nascimento", default: false, category: "Detalhes do Beneficiário" },
+  { key: "dataEntrada", label: "Vigência (Entrada)", default: false, category: "Detalhes do Beneficiário" },
+  { key: "titular", label: "Titular", default: false, category: "Detalhes do Beneficiário" },
+  { key: "estado", label: "UF", default: false, category: "Detalhes do Beneficiário" },
+  { key: "contrato", label: "Contrato", default: false, category: "Detalhes do Beneficiário" },
+  { key: "matricula", label: "Matrícula", default: false, category: "Detalhes do Beneficiário" },
+  { key: "carteirinha", label: "Carteirinha", default: false, category: "Detalhes do Beneficiário" },
+  { key: "centroCusto", label: "Centro de Custo", default: false, category: "Detalhes do Beneficiário" },
+  { key: "comentario", label: "Observação/Ação", default: false, category: "Detalhes do Beneficiário" },
+
+  { key: "valorMensalidade", label: "Mensalidade", default: true, category: "Dados Financeiros" },
+  { key: "regimeCobranca", label: "Regime Cobrança", default: false, category: "Dados Financeiros" },
+  { key: "motivoMovimento", label: "Motivo Movimento", default: false, category: "Dados Financeiros" },
+  { key: "observacoes", label: "Observações", default: false, category: "Dados Financeiros" },
 ];
+
 const COLS_LS_KEY = "health.beneficiaries.visibleColumns";
 
-// ---------- Faixas etárias & alertas ----------
+// Faixas etárias & alertas (sem alteração)
 type AgeBand = { min: number; max: number; label: string };
 const AGE_BANDS: AgeBand[] = [
   { min: 0,  max: 18, label: "0–18" },
@@ -87,9 +123,7 @@ type AgeInfo = {
   nextBandChangeDate?: Date | null;
   alert: AgeAlert;
 };
-
 const rowBgByAlert = (a: AgeAlert) => (a === "high" ? "bg-red-50" : a === "moderate" ? "bg-yellow-50" : "");
-
 function ageFromDob(dob: Date, ref = new Date()) {
   let age = ref.getFullYear() - dob.getFullYear();
   const hasHadBirthday =
@@ -99,42 +133,25 @@ function ageFromDob(dob: Date, ref = new Date()) {
   return age;
 }
 const getBand = (age: number) => AGE_BANDS.find((b) => age >= b.min && age <= b.max);
-const dateAtAge = (dob: Date, targetAge: number) => {
-  const d = new Date(dob);
-  d.setFullYear(dob.getFullYear() + targetAge);
-  return d;
-};
-const monthsBetween = (from: Date, to: Date) => {
-  const y = to.getFullYear() - from.getFullYear();
-  const m = to.getMonth() - from.getMonth();
-  let months = y * 12 + m;
-  if (to.getDate() < from.getDate()) months -= 1;
-  return months;
-};
+const dateAtAge = (dob: Date, targetAge: number) => { const d = new Date(dob); d.setFullYear(dob.getFullYear() + targetAge); return d; };
+const monthsBetween = (from: Date, to: Date) => { const y = to.getFullYear() - from.getFullYear(); const m = to.getMonth() - from.getMonth(); let months = y * 12 + m; if (to.getDate() < from.getDate()) months -= 1; return months; };
 function computeAgeInfo(dobIso?: string | null, ref = new Date()): AgeInfo {
   if (!dobIso) return { alert: "none", monthsUntilBandChange: null, nextBandChangeDate: null };
   const dob = new Date(dobIso);
   if (isNaN(dob.getTime())) return { alert: "none", monthsUntilBandChange: null, nextBandChangeDate: null };
-
   const age = ageFromDob(dob, ref);
   const band = getBand(age);
   if (!band) return { age, alert: "none", monthsUntilBandChange: null, nextBandChangeDate: null };
-
-  if (!isFinite(band.max) || band.max >= 200) {
-    return { age, band, alert: "none", monthsUntilBandChange: null, nextBandChangeDate: null };
-  }
-
+  if (!isFinite(band.max) || band.max >= 200) return { age, band, alert: "none", monthsUntilBandChange: null, nextBandChangeDate: null };
   const changeDate = dateAtAge(dob, band.max + 1);
   const months = monthsBetween(ref, changeDate);
-
   let alert: AgeAlert = "none";
   if (months >= 0 && months < 3) alert = "high";
   else if (months >= 0 && months < 6) alert = "moderate";
-
   return { age, band, monthsUntilBandChange: months, nextBandChangeDate: changeDate, alert };
 }
 
-// ---------- Ações por linha ----------
+// Ações por linha (sem alteração)
 function RowActions({ id, clienteId }: { id: string; clienteId: string }) {
   const router = useRouter();
   const qc = useQueryClient();
@@ -142,11 +159,7 @@ function RowActions({ id, clienteId }: { id: string; clienteId: string }) {
 
   const del = useMutation({
     mutationFn: async () => apiFetch<void>(`/clients/${clienteId}/beneficiaries/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      toast.success("Beneficiário removido.");
-      qc.invalidateQueries({ queryKey: ["beneficiaries"] });
-      setConfirmOpen(false);
-    },
+    onSuccess: () => { toast.success("Beneficiário removido."); qc.invalidateQueries({ queryKey: ["beneficiaries"] }); setConfirmOpen(false); },
     onError: (e: unknown) => toast.error("Falha ao remover.", { description: errorMessage(e) }),
   });
 
@@ -182,7 +195,6 @@ function RowActions({ id, clienteId }: { id: string; clienteId: string }) {
   );
 }
 
-/** Wrapper exigido pelo Next quando usamos useSearchParams em Client Page */
 export default function BeneficiariesPage() {
   return (
     <Suspense fallback={<div className="p-4"><Skeleton className="h-6 w-40 mb-3" /><Skeleton className="h-96 w-full" /></div>}>
@@ -191,7 +203,6 @@ export default function BeneficiariesPage() {
   );
 }
 
-// ---------- Página (conteúdo real) ----------
 function BeneficiariesPageInner() {
   const { clienteId } = useParams<{ clienteId: string }>();
   const router = useRouter();
@@ -199,18 +210,17 @@ function BeneficiariesPageInner() {
   const qc = useQueryClient();
 
   const search = searchParams.get("search") ?? "";
+  const tipo = searchParams.get("tipo") ?? ""; // ✅ NOVO: estado do filtro "tipo"
+  const status = searchParams.get("status") ?? ""; // ✅ NOVO: estado do filtro "status"
+  const plano = searchParams.get("plano") ?? ""; // ✅ NOVO: estado do filtro "plano"
   const [searchText, setSearchText] = React.useState(search);
+
   const [visibleCols, setVisibleCols] = React.useState<Set<ColumnKey>>(() => {
-    try {
-      const raw = localStorage.getItem(COLS_LS_KEY);
-      if (raw) return new Set(JSON.parse(raw) as ColumnKey[]);
-    } catch {}
+    try { const raw = localStorage.getItem(COLS_LS_KEY); if (raw) return new Set(JSON.parse(raw) as ColumnKey[]); } catch {}
     return new Set(ALL_COLUMNS.filter((c) => c.default).map((c) => c.key));
   });
-  React.useEffect(() => {
-    try { localStorage.setItem(COLS_LS_KEY, JSON.stringify([...visibleCols])); } catch {}
-  }, [visibleCols]);
-  
+  React.useEffect(() => { try { localStorage.setItem(COLS_LS_KEY, JSON.stringify([...visibleCols])); } catch {} }, [visibleCols]);
+
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const [errorDetails, setErrorDetails] = React.useState<any[] | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -237,61 +247,63 @@ function BeneficiariesPageInner() {
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) {
-      const formData = new FormData();
-      formData.append('file', file);
-      uploadMutation.mutate(formData);
-    }
+    if (file) { const formData = new FormData(); formData.append('file', file); uploadMutation.mutate(formData); }
     event.target.value = '';
   };
   const handleImportClick = () => { fileInputRef.current?.click(); };
 
+  // ✅ MELHORIA: A consulta agora inclui todos os filtros
   const { data, isFetching, isError, error, refetch } = useQuery<PageResult<BeneficiaryRow>>({
-    queryKey: ["beneficiaries", { clienteId, search }],
-    queryFn: async () => apiFetch<PageResult<BeneficiaryRow>>(`/clients/${clienteId}/beneficiaries`, { query: { search: search || undefined } }),
+    queryKey: ["beneficiaries", { clienteId, search, tipo, status, plano }],
+    queryFn: async () =>
+      apiFetch<PageResult<BeneficiaryRow>>(`/clients/${clienteId}/beneficiaries`, {
+        query: { search: search || undefined, tipo: tipo || undefined, status: status || undefined, plano: plano || undefined },
+      }),
     staleTime: 10_000,
   });
 
   const items: BeneficiaryRow[] = React.useMemo(() => data?.items ?? [], [data]);
-  
-  // Ordenação hierárquica (Titular -> Dependentes)
+
   const hierarchicalRows = React.useMemo(() => {
     if (items.length === 0) return [];
-    const titulares = items.filter(b => b.tipo === 'Titular').sort((a,b) => a.nomeCompleto.localeCompare(b.nomeCompleto));
+    const titulares = items
+      .filter((b) => b.tipo === "Titular")
+      .sort((a, b) => a.nomeCompleto.localeCompare(b.nomeCompleto));
+
     const dependentsMap = items.reduce((acc, b) => {
-      if (b.tipo === 'Dependente' && b.titularId) {
+      if (b.tipo !== "Titular" && b.titularId) {
         if (!acc[b.titularId]) acc[b.titularId] = [];
         acc[b.titularId].push(b);
       }
       return acc;
     }, {} as Record<string, BeneficiaryRow[]>);
+
     const finalRows: BeneficiaryRow[] = [];
-    titulares.forEach(titular => {
+    titulares.forEach((titular) => {
       finalRows.push(titular);
       const deps = dependentsMap[titular.id] ?? [];
-      deps.sort((a,b) => a.nomeCompleto.localeCompare(b.nomeCompleto));
+      deps.sort((a, b) => a.nomeCompleto.localeCompare(b.nomeCompleto));
       finalRows.push(...deps);
     });
     return finalRows;
   }, [items]);
 
-  // Enriquecer com AgeInfo (idade calculada, meses até mudar de faixa e alerta)
   const rowsWithAge = React.useMemo(() => {
     const now = new Date();
     return hierarchicalRows.map((b) => {
       const ai = computeAgeInfo(b.dataNascimento ?? null, now);
-      // idade vinda da API tem prioridade; se não vier, usa calculada
       const idade = b.idade ?? ai.age ?? null;
       const bandLabel = b.faixaEtaria ?? (ai.band ? ai.band.label : null);
-      return { ...b, _ai: ai, idade, _bandLabel: bandLabel };
+      return { ...b, _ai: ai, idade, _bandLabel: bandLabel } as any;
     });
   }, [hierarchicalRows]);
 
   const stats = React.useMemo(() => {
     const totalBeneficiarios = items.length;
     const totalTitulares = items.filter((b) => b.tipo === "Titular").length;
+    const totalDependentes = items.filter((b) => b.tipo !== "Titular").length;
     const totalMensalidades = items.reduce((acc, b) => acc + (b.valorMensalidade ?? 0), 0);
-    return { totalBeneficiarios, totalTitulares, totalDependentes: totalBeneficiarios - totalTitulares, totalMensalidades };
+    return { totalBeneficiarios, totalTitulares, totalDependentes, totalMensalidades };
   }, [items]);
 
   React.useEffect(() => {
@@ -302,13 +314,9 @@ function BeneficiariesPageInner() {
 
   const [bulkOpen, setBulkOpen] = React.useState(false);
   const deleteMany = useMutation({
-    mutationFn: async (ids: string[]) => apiFetch<void>(`/clients/${clienteId}/beneficiaries/bulk-delete`, { method: 'POST', body: { ids } }),
-    onSuccess: () => {
-      toast.success(`${selected.size} beneficiário(s) removido(s).`);
-      setSelected(new Set());
-      qc.invalidateQueries({ queryKey: ["beneficiaries"] });
-      setBulkOpen(false);
-    },
+    mutationFn: async (ids: string[]) =>
+      apiFetch<void>(`/clients/${clienteId}/beneficiaries/bulk-delete`, { method: 'POST', body: { ids } }),
+    onSuccess: () => { toast.success(`${selected.size} beneficiário(s) removido(s).`); setSelected(new Set()); qc.invalidateQueries({ queryKey: ["beneficiaries"] }); setBulkOpen(false); },
     onError: (e: unknown) => toast.error("Falha ao remover.", { description: errorMessage(e) }),
   });
 
@@ -342,15 +350,23 @@ function BeneficiariesPageInner() {
     });
   };
   const toggleOne = (id: string, checked: boolean) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (checked) next.add(id); else next.delete(id);
-      return next;
-    });
+    setSelected((prev) => { const next = new Set(prev); if (checked) next.add(id); else next.delete(id); return next; });
   };
 
   const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   const formatDate = (d?: string | null) => d ? new Date(d).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : "—";
+  
+  // ✅ NOVO: Definir as categorias de colunas para o menu
+  const columnCategories = React.useMemo(() => {
+    return ALL_COLUMNS.reduce((acc, col) => {
+      const category = col.category || "Outros";
+      if (!acc[category]) {
+        acc[category] = [];
+      }
+      acc[category].push(col);
+      return acc;
+    }, {} as Record<string, typeof ALL_COLUMNS>);
+  }, []);
 
   return (
     <SidebarProvider>
@@ -381,6 +397,31 @@ function BeneficiariesPageInner() {
                 </Button>
               )}
             </form>
+
+            {/* ✅ NOVO: Filtros avançados */}
+            <Select value={tipo || "todos"} onValueChange={(v) => pushParams({ tipo: v === "todos" ? undefined : v })}>
+              <SelectTrigger className="w-[120px]">
+                <SelectValue placeholder="Tipo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Tipo (Todos)</SelectItem>
+                <SelectItem value="Titular">Titular</SelectItem>
+                <SelectItem value="Filho">Filho</SelectItem>
+                <SelectItem value="Cônjuge">Cônjuge</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={status || "todos"} onValueChange={(v) => pushParams({ status: v === "todos" ? undefined : v })}>
+              <SelectTrigger className="w-[120px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="todos">Status (Todos)</SelectItem>
+                <SelectItem value="Ativo">Ativo</SelectItem>
+                <SelectItem value="Inativo">Inativo</SelectItem>
+              </SelectContent>
+            </Select>
+
             <AlertDialog open={bulkOpen} onOpenChange={setBulkOpen}>
               <AlertDialogTrigger asChild>
                 <Button type="button" variant="outline" size="sm" disabled={selected.size === 0}>Excluir ({selected.size})</Button>
@@ -398,21 +439,30 @@ function BeneficiariesPageInner() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
+
             <Button variant="outline" onClick={handleImportClick} disabled={uploadMutation.isPending}>
               {uploadMutation.isPending ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processando...</>) : (<><Upload className="mr-2 h-4 w-4" /> Importar</>)}
             </Button>
-            <Button onClick={() => router.push(`/health/${clienteId}/beneficiaries/new`)}>
-              <PlusCircle className="mr-2 h-4 w-4" /> Novo
-            </Button>
+            <Button asChild><Link href={`/health/${clienteId}/beneficiaries/new`}><PlusCircle className="mr-2 h-4 w-4" /> Novo</Link></Button>
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild><Button variant="outline" size="sm"><SlidersHorizontal className="mr-2 h-4 w-4" />Colunas</Button></DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel>Visibilidade</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {ALL_COLUMNS.map((c) => (
-                  <DropdownMenuCheckboxItem key={c.key} checked={visibleCols.has(c.key)} onCheckedChange={() => toggleCol(c.key)} disabled={c.key === "select"}>
-                    {c.label || c.key}
-                  </DropdownMenuCheckboxItem>
+              <DropdownMenuContent align="end" className="w-64 max-h-[60vh] overflow-auto">
+                {Object.entries(columnCategories).map(([category, cols]) => (
+                  <React.Fragment key={category}>
+                    {category !== "Outros" && (
+                      <>
+                        <DropdownMenuLabel>{category}</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                      </>
+                    )}
+                    {cols.map((c) => (
+                      <DropdownMenuCheckboxItem key={c.key} checked={visibleCols.has(c.key)} onCheckedChange={() => toggleCol(c.key)} disabled={c.key === "select" || c.key === "actions"}>
+                        {c.label || c.key}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                    <DropdownMenuSeparator />
+                  </React.Fragment>
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
@@ -450,7 +500,7 @@ function BeneficiariesPageInner() {
                 <div className="text-2xl font-bold">
                   {stats.totalTitulares} <span className="text-base font-normal">Titulares</span> / {stats.totalDependentes} <span className="text-base font-normal">Dependentes</span>
                 </div>
-                <p className="text-xs text-muted-foreground mt-1">Total de vidas ativas</p>
+                <p className="text-xs text-muted-foreground mt-1">Total de vidas</p>
               </CardContent>
             </Card>
             <Card>
@@ -465,7 +515,6 @@ function BeneficiariesPageInner() {
               </CardContent>
             </Card>
 
-            {/* ⬇️ NOVO: gráfico de vidas por idade ocupando a linha inteira no desktop */}
             <div className="sm:col-span-2 lg:col-span-3">
               <GraficoIdadeBeneficiarios items={items} binSize={5} title="Distribuição de vidas por idade" subtitle="Agrupado em faixas de 5 anos" />
             </div>
@@ -492,19 +541,29 @@ function BeneficiariesPageInner() {
                           {isVisible("nomeCompleto") && <TableHead>Nome</TableHead>}
                           {isVisible("cpf") && <TableHead>CPF</TableHead>}
                           {isVisible("tipo") && <TableHead>Tipo</TableHead>}
+                          {isVisible("dataEntrada") && <TableHead>Vigência</TableHead>}
                           {isVisible("dataNascimento") && <TableHead>Nascimento</TableHead>}
                           {isVisible("idade") && <TableHead>Idade</TableHead>}
                           {isVisible("faixaEtaria") && <TableHead>Faixa Etária</TableHead>}
                           {isVisible("plano") && <TableHead>Plano</TableHead>}
+                          {isVisible("centroCusto") && <TableHead>Centro de Custo</TableHead>}
                           {isVisible("matricula") && <TableHead>Matrícula</TableHead>}
+                          {isVisible("carteirinha") && <TableHead>Carteirinha</TableHead>}
                           {isVisible("valorMensalidade") && <TableHead>Mensalidade</TableHead>}
+                          {isVisible("estado") && <TableHead>UF</TableHead>}
+                          {isVisible("contrato") && <TableHead>Contrato</TableHead>}
+                          {isVisible("sexo") && <TableHead>Sexo</TableHead>}
+                          {isVisible("titular") && <TableHead>Titular</TableHead>}
+                          {isVisible("regimeCobranca") && <TableHead>Regime Cobrança</TableHead>}
+                          {isVisible("motivoMovimento") && <TableHead>Motivo Movimento</TableHead>}
+                          {isVisible("observacoes") && <TableHead>Observações</TableHead>}
                           {isVisible("status") && <TableHead>Status</TableHead>}
-                          {isVisible("comentario") && <TableHead>Observação</TableHead>}
+                          {isVisible("comentario") && <TableHead>Observação/Ação</TableHead>}
                           {isVisible("actions") && <TableHead className="text-right">Ações</TableHead>}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {rowsWithAge.map((b) => {
+                        {rowsWithAge.map((b: any) => {
                           const ai = b._ai as ReturnType<typeof computeAgeInfo>;
                           const bg = rowBgByAlert(ai.alert);
                           const showTooltip = ai.alert === "high" || ai.alert === "moderate";
@@ -512,9 +571,7 @@ function BeneficiariesPageInner() {
                             ai.monthsUntilBandChange != null && ai.monthsUntilBandChange >= 0
                               ? `Muda de faixa em ${ai.monthsUntilBandChange} ${ai.monthsUntilBandChange === 1 ? "mês" : "meses"}${ai.nextBandChangeDate ? ` (${ai.nextBandChangeDate.toLocaleDateString("pt-BR")})` : ""}`
                               : "Sem mudança de faixa prevista";
-
-                          const isDependente = b.tipo === "Dependente";
-
+                          const isDependente = b.tipo !== "Titular";
                           return (
                             <TableRow
                               key={b.id}
@@ -526,18 +583,16 @@ function BeneficiariesPageInner() {
                                   <Checkbox checked={selected.has(b.id)} onCheckedChange={(v) => toggleOne(b.id, Boolean(v))} />
                                 </TableCell>
                               )}
-
                               {isVisible("nomeCompleto") && (
                                 <TableCell className={`font-medium ${isDependente ? "pl-10" : ""}`}>
                                   {isDependente && "↳ "}
                                   {b.nomeCompleto}
                                 </TableCell>
                               )}
-
                               {isVisible("cpf") && <TableCell>{b.cpf ?? "—"}</TableCell>}
                               {isVisible("tipo") && <TableCell>{b.tipo}</TableCell>}
+                              {isVisible("dataEntrada") && <TableCell>{formatDate(b.dataEntrada)}</TableCell>}
                               {isVisible("dataNascimento") && <TableCell>{formatDate(b.dataNascimento)}</TableCell>}
-
                               {isVisible("idade") && (
                                 <TableCell>
                                   {showTooltip ? (
@@ -557,14 +612,21 @@ function BeneficiariesPageInner() {
                                   )}
                                 </TableCell>
                               )}
-
                               {isVisible("faixaEtaria") && <TableCell>{b._bandLabel ?? "—"}</TableCell>}
                               {isVisible("plano") && <TableCell>{b.plano ?? "—"}</TableCell>}
+                              {isVisible("centroCusto") && <TableCell>{b.centroCusto ?? "—"}</TableCell>}
                               {isVisible("matricula") && <TableCell>{b.matricula ?? "—"}</TableCell>}
+                              {isVisible("carteirinha") && <TableCell>{b.carteirinha ?? "—"}</TableCell>}
                               {isVisible("valorMensalidade") && <TableCell>{b.valorMensalidade ? brl(b.valorMensalidade) : "—"}</TableCell>}
+                              {isVisible("estado") && <TableCell>{b.estado ?? "—"}</TableCell>}
+                              {isVisible("contrato") && <TableCell>{b.contrato ?? "—"}</TableCell>}
+                              {isVisible("sexo") && <TableCell>{b.sexo ?? "—"}</TableCell>}
+                              {isVisible("titular") && <TableCell>{b.titularNome ?? b.titularId ?? "—"}</TableCell>}
+                              {isVisible("regimeCobranca") && <TableCell>{b.regimeCobranca ?? "—"}</TableCell>}
+                              {isVisible("motivoMovimento") && <TableCell>{b.motivoMovimento ?? "—"}</TableCell>}
+                              {isVisible("observacoes") && <TableCell>{b.observacoes ?? "—"}</TableCell>}
                               {isVisible("status") && <TableCell>{b.status}</TableCell>}
                               {isVisible("comentario") && <TableCell>{b.comentario ?? "—"}</TableCell>}
-
                               {isVisible("actions") && (
                                 <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                                   <RowActions id={b.id} clienteId={clienteId} />
@@ -582,26 +644,23 @@ function BeneficiariesPageInner() {
           </Card>
         </div>
         
+        {/* ✅ MELHORIA: Completando o AlertDialog para exibir detalhes de erro */}
         <AlertDialog open={!!errorDetails} onOpenChange={(open) => !open && setErrorDetails(null)}>
-          <AlertDialogContent>
+          <AlertDialogContent className="max-w-[calc(100vw-2rem)] md:max-w-screen-md">
             <AlertDialogHeader>
-              <AlertDialogTitle>Erros na Importação</AlertDialogTitle>
-              <AlertDialogDescription>As seguintes linhas do arquivo não puderam ser importadas.</AlertDialogDescription>
+              <AlertDialogTitle>Detalhes da Importação</AlertDialogTitle>
+              <AlertDialogDescription>Ocorreram erros durante o processamento do arquivo.</AlertDialogDescription>
             </AlertDialogHeader>
-            <div className="max-h-60 overflow-y-auto pr-4 text-sm">
-              <ul className="space-y-2">
-                {errorDetails?.map((err, index) => (
-                  <li key={index} className="rounded-md border bg-muted p-2">
-                    <p className="font-semibold">Linha {err.line}: <span className="text-red-500">{err.message}</span></p>
-                    <pre className="mt-1 whitespace-pre-wrap break-all text-xs text-muted-foreground">{JSON.stringify(err.data)}</pre>
-                  </li>
-                ))}
-              </ul>
+            <div className="max-h-[70vh] overflow-y-auto rounded-md border text-sm p-4">
+              <pre className="whitespace-pre-wrap font-mono text-sm">
+                {errorDetails && JSON.stringify(errorDetails, null, 2)}
+              </pre>
             </div>
-            <AlertDialogFooter><AlertDialogAction onClick={() => setErrorDetails(null)}>Fechar</AlertDialogAction></AlertDialogFooter>
+            <AlertDialogFooter>
+              <AlertDialogAction>Fechar</AlertDialogAction>
+            </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-
       </SidebarInset>
     </SidebarProvider>
   );

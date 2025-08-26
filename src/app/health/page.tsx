@@ -12,8 +12,12 @@ import { errorMessage } from "@/lib/errors";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import {
-  Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList,
-  BreadcrumbPage, BreadcrumbSeparator,
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Separator } from "@/components/ui/separator";
 
@@ -57,7 +61,7 @@ function HealthSelectClientPageInner() {
   // Busca (estado controlado)
   const [searchText, setSearchText] = React.useState(search);
 
-  // ✅ ALTERAÇÃO AQUI: Adicionado o filtro `service: 'health'` na chamada da API
+  // ✅ Filtra apenas clientes com serviço de saúde
   const { data, isFetching, isError, error, refetch } = useQuery<PageResult<ClientRow>>({
     queryKey: ["health-select-client", { page, limit, search }],
     queryFn: async () => {
@@ -66,7 +70,7 @@ function HealthSelectClientPageInner() {
           page,
           limit,
           search: search || undefined,
-          service: 'HEALTH', // Filtra apenas clientes com serviço de saúde
+          service: "HEALTH",
         },
       });
       if (Array.isArray(res)) {
@@ -166,8 +170,9 @@ function HealthSelectClientPageInner() {
 
             <Card>
               <CardHeader>
-                {/* ✅ ALTERAÇÃO AQUI: Título mais claro para o usuário */}
-                <CardTitle className="text-base">Selecione um cliente com apólice de saúde</CardTitle>
+                <CardTitle className="text-base">
+                  Selecione um cliente com apólice de saúde
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 {isFetching && !data ? (
@@ -185,7 +190,9 @@ function HealthSelectClientPageInner() {
                   </div>
                 ) : items.length === 0 ? (
                   <div className="space-y-2">
-                    <p className="text-sm text-muted-foreground">Nenhum cliente com apólice de saúde foi encontrado.</p>
+                    <p className="text-sm text-muted-foreground">
+                      Nenhum cliente com apólice de saúde foi encontrado.
+                    </p>
                     <Button asChild size="sm">
                       <Link href="/clients/new">Cadastrar cliente</Link>
                     </Button>
@@ -237,7 +244,9 @@ function HealthSelectClientPageInner() {
                       >
                         Anterior
                       </Button>
-                      <span className="text-sm">Página {currentPage} de {totalPages}</span>
+                      <span className="text-sm">
+                        Página {currentPage} de {totalPages}
+                      </span>
                       <Button
                         variant="outline"
                         size="sm"

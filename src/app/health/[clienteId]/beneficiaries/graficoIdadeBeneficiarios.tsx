@@ -20,36 +20,32 @@ import {
 } from "@/components/ui/chart";
 
 type Item = {
-  dataNascimento?: string | null; // ISO ou "YYYY-MM-DD"
-  idade?: number | null;          // se já vier calculada, usamos ela
+  dataNascimento?: string | null;
+  idade?: number | null;
 };
 
 type AgeBand = { min: number; max: number; label: string };
 
 const DEFAULT_AGE_BANDS: AgeBand[] = [
-  { min: 0,  max: 18,  label: "0–18" },
-  { min: 19, max: 23,  label: "19–23" },
-  { min: 24, max: 28,  label: "24–28" },
-  { min: 29, max: 33,  label: "29–33" },
-  { min: 34, max: 38,  label: "34–38" },
-  { min: 39, max: 43,  label: "39–43" },
-  { min: 44, max: 48,  label: "44–48" },
-  { min: 49, max: 53,  label: "49–53" },
-  { min: 54, max: 58,  label: "54–58" },
-  { min: 59, max: 200, label: "59+"  },
+  { min: 0, max: 18, label: "0–18" },
+  { min: 19, max: 23, label: "19–23" },
+  { min: 24, max: 28, label: "24–28" },
+  { min: 29, max: 33, label: "29–33" },
+  { min: 34, max: 38, label: "34–38" },
+  { min: 39, max: 43, label: "39–43" },
+  { min: 44, max: 48, label: "44–48" },
+  { min: 49, max: 53, label: "49–53" },
+  { min: 54, max: 58, label: "54–58" },
+  { min: 59, max: 200, label: "59+" },
 ];
 
 type Props = {
   items: Item[];
   title?: string;
   subtitle?: string;
-  /** Modo de agrupamento: "bands" (faixas do negócio) ou "exact" (por idade / binSize). */
   mode?: "bands" | "exact";
-  /** Para mode="exact": tamanho do “balde” (1 = idade exata; 5 = grupos de 5 anos). */
   binSize?: number;
-  /** Filtro de idades. Aplica-se a ambos os modos. */
   range?: { min?: number; max?: number };
-  /** Para mode="bands": sobrescrever faixas (opcional). */
   bands?: AgeBand[];
 };
 
@@ -57,7 +53,6 @@ const chartConfig = {
   vidas: { label: "Vidas", color: "var(--chart-1)" },
 } satisfies ChartConfig;
 
-/** Idade inteira hoje baseada em data de nascimento (sem bugs de fuso). */
 function ageFromDob(dobIso: string, ref = new Date()): number | null {
   if (!dobIso) return null;
   const dob = new Date(dobIso);
@@ -85,7 +80,6 @@ export function GraficoIdadeBeneficiarios({
 }: Props) {
   const chartTitle = title ?? (mode === "bands" ? "Vidas por faixa etária" : "Vidas por idade");
 
-  // 1) extrai idades válidas e aplica range (se houver)
   const ages = React.useMemo(() => {
     const today = new Date();
     const arr: number[] = items
@@ -100,12 +94,10 @@ export function GraficoIdadeBeneficiarios({
     });
   }, [items, range]);
 
-  // 2) agrega conforme o modo
   const data = React.useMemo(() => {
     if (ages.length === 0) return [];
 
     if (mode === "bands") {
-      // Pré-inicializa para manter ordem/labels mesmo com 0
       const counts = new Map<string, { label: string; start: number; vidas: number }>();
       for (const b of bands) counts.set(b.label, { label: b.label, start: b.min, vidas: 0 });
 
@@ -119,7 +111,6 @@ export function GraficoIdadeBeneficiarios({
       return Array.from(counts.values()).sort((x, y) => x.start - y.start);
     }
 
-    // mode === "exact"
     const uniqueAges = new Set(ages).size;
     const effectiveBinSize = binSize === 1 && uniqueAges > 40 ? 5 : binSize;
 
