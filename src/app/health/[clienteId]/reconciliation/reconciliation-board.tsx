@@ -78,8 +78,6 @@ type ReconResp = {
     onlyInRegistry: number;
     mismatched: number;
     duplicates: number;
-    /** NOVO: convergentes (OK) */
-    matched: number;
   };
   filtersApplied: { tipo?: 'TITULAR' | 'DEPENDENTE'; plano?: string; centro?: string };
   tabs: {
@@ -100,16 +98,6 @@ type ReconResp = {
       ocorrencias: number;
       somaCobrada: string;
       valores: string[];
-    }>;
-    /** NOVO: convergentes */
-    matched: Array<{
-      id: string;
-      cpf: string;
-      nome: string;
-      valorCobrado: string;
-      valorMensalidade: string;
-      diferenca: string;
-      status: 'OK';
     }>;
     allInvoice: Array<{
       id: string;
@@ -132,6 +120,16 @@ type OptionsResp = {
 type RowVariant = 'ok' | 'error' | undefined;
 const cx = (...c: Array<string | false | null | undefined>) => c.filter(Boolean).join(' ');
 const ALL_TOKEN = '__ALL__';
+
+// ---------- utils de moeda ----------
+const parseCurrency = (v: string | number | null | undefined): number => {
+  if (v == null) return 0;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+  const raw = String(v).replace(/[^\d.,\-]/g, '');
+  if (!raw) return 0;
+  return raw.includes(',') ? Number(raw.replace(/\./g, '').replace(',', '.')) || 0 : Number(raw) || 0;
+};
+const toBRL = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 // ---------- MonthPicker helpers ----------
 function ymToDate(ym?: string): Date | undefined {
@@ -158,7 +156,6 @@ function MonthPicker({
   label?: string;
 }) {
   const [open, setOpen] = React.useState(false);
-
   const selected = ymToDate(value) ?? new Date();
   const displayDate = ymToDate(value) ?? new Date();
 
@@ -210,7 +207,6 @@ function ReconTable<T extends ReconRowWithId>({
   emphasizeCols = [],
   selectedIds,
   onSelectChange,
-  selectable = true,
 }: {
   columns: string[];
   data: T[];
@@ -218,21 +214,22 @@ function ReconTable<T extends ReconRowWithId>({
   emphasizeCols?: number[];
   selectedIds: string[];
   onSelectChange: (id: string, isChecked: boolean) => void;
-  /** Desliga checkboxes (ex.: “Só no cadastro” não tem IDs de fatura) */
-  selectable?: boolean;
 }) {
+  const allIds = data.map((d) => d.id);
+  const allChecked = allIds.length > 0 && allIds.every((id) => selectedIds.includes(id));
+
   return (
     <div className="rounded-md border overflow-hidden">
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead className="w-12">
-              {selectable && data.length > 0 && (
+              {data.length > 0 && (
                 <Checkbox
-                  checked={selectedIds.length === data.length}
+                  checked={allChecked}
                   onCheckedChange={(checked) => {
-                    const allIds = data.map((d) => d.id);
-                    allIds.forEach((id) => onSelectChange(id, !!checked));
+                    if (checked) allIds.forEach((id) => onSelectChange(id, true));
+                    else allIds.forEach((id) => onSelectChange(id, false));
                   }}
                   aria-label="Selecionar todos"
                 />
@@ -262,17 +259,12 @@ function ReconTable<T extends ReconRowWithId>({
               return (
                 <TableRow key={r.id} className={rowClass}>
                   <TableCell>
-                    {selectable && (
-                      <Checkbox
-                        checked={selectedIds.includes(r.id)}
-                        onCheckedChange={(checked) => onSelectChange(r.id, !!checked)}
-                        aria-label="Selecionar linha"
-                      />
-                    )}
+                    <Checkbox
+                      checked={selectedIds.includes(r.id)}
+                      onCheckedChange={(checked) => onSelectChange(r.id, !!checked)}
+                      aria-label="Selecionar linha"
+                    />
                   </TableCell>
-                  {/* OBS: exibimos os valores na ordem natural do objeto.
-                      Como a API já envia somente as colunas referentes à tabela,
-                      isso se mantém simples. */}
                   {Object.values(r).slice(1).map((cell, j) => {
                     const emphasize = emphasizeCols.includes(j) && (variant === 'error' || variant === 'ok');
                     const emphasizeClass =
@@ -286,7 +278,7 @@ function ReconTable<T extends ReconRowWithId>({
                         key={`${r.id}-${j}`}
                         className={cx(j >= columns.length - 2 ? 'text-right' : '', emphasize ? emphasizeClass : '')}
                       >
-                        {Array.isArray(cell) ? cell.join(', ') : String(cell)}
+                        {String(cell)}
                       </TableCell>
                     );
                   })}
@@ -324,7 +316,6 @@ export default function ReconciliationBoard() {
   const defaultYm = React.useMemo(() => dateToYm(new Date()), []);
   const [mes, setMes] = React.useState<string>(mesParam || defaultYm);
 
-  // Se a URL não tiver ?mes, sincroniza colocando o mês atual na primeira montagem
   React.useEffect(() => {
     if (!mesParam) {
       const params = new URLSearchParams(window.location.search);
@@ -335,13 +326,11 @@ export default function ReconciliationBoard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Se o parâmetro mudar externamente, atualiza o estado
   React.useEffect(() => {
     if (mesParam && mesParam !== mes) setMes(mesParam);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mesParam]);
 
-  // Centraliza a mudança de mês e mantém URL em sincronia
   const handleMesChange = React.useCallback((v: string) => {
     setMes(v);
     const params = new URLSearchParams(window.location.search);
@@ -351,7 +340,7 @@ export default function ReconciliationBoard() {
   }, []);
 
   const [activeTab, setActiveTab] = React.useState<
-    'mismatched' | 'onlyInInvoice' | 'onlyInRegistry' | 'duplicates' | 'matched' | 'allInvoice'
+    'mismatched' | 'onlyInInvoice' | 'onlyInRegistry' | 'duplicates' | 'okInvoice' | 'allInvoice'
   >('mismatched');
   const [format, setFormat] = React.useState<'xlsx' | 'csv'>('xlsx');
 
@@ -382,6 +371,36 @@ export default function ReconciliationBoard() {
       return apiFetch<ReconResp>(`/clients/${clienteId}/reconciliation?${params.toString()}`);
     },
   });
+
+  // --- proteção contra data.tabs indefinido ----
+  const tabs = React.useMemo(
+    () =>
+      data?.tabs ?? {
+        onlyInInvoice: [],
+        onlyInRegistry: [],
+        mismatched: [],
+        duplicates: [],
+        allInvoice: [],
+      },
+    [data],
+  );
+
+  // Derivados: Convergentes (OK)
+  const okRows = React.useMemo(() => tabs.allInvoice.filter((r) => r.status === 'OK'), [tabs.allInvoice]);
+
+  // Somatórios financeiros (robustos)
+  const allInvoiceSum = React.useMemo(
+    () => toBRL(tabs.allInvoice.reduce((acc, r) => acc + parseCurrency(r.valorCobrado), 0)),
+    [tabs.allInvoice],
+  );
+  const onlyInInvoiceSum = React.useMemo(
+    () => toBRL(tabs.onlyInInvoice.reduce((acc, r) => acc + parseCurrency(r.valorCobrado), 0)),
+    [tabs.onlyInInvoice],
+  );
+  const okInvoiceSum = React.useMemo(
+    () => toBRL(okRows.reduce((acc, r) => acc + parseCurrency(r.valorCobrado), 0)),
+    [okRows],
+  );
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
@@ -436,9 +455,11 @@ export default function ReconciliationBoard() {
 
   const pieData = React.useMemo(() => {
     if (!data) return [];
-    const { mismatched, duplicates, onlyInInvoice, onlyInRegistry, matched } = data.totals;
+    const { mismatched, duplicates, onlyInInvoice, onlyInRegistry, ativosCount } = data.totals;
+    const divergentes = mismatched + onlyInInvoice + onlyInRegistry + duplicates;
+    const conformes = Math.max(0, ativosCount - divergentes);
     return [
-      { name: 'Convergentes', value: matched, key: 'ok' },
+      { name: 'Conformes', value: conformes, key: 'ok' },
       { name: 'Divergentes', value: mismatched, key: 'mismatch' },
       { name: 'Duplicados', value: duplicates, key: 'dup' },
       { name: 'Só na fatura', value: onlyInInvoice, key: 'inv' },
@@ -470,11 +491,8 @@ export default function ReconciliationBoard() {
   const handleSelectChange = React.useCallback(
     (id: string, isChecked: boolean) => {
       setSelectedInvoiceIds((prev) => {
-        if (isChecked) {
-          return Array.from(new Set([...prev, id]));
-        } else {
-          return prev.filter((_id) => _id !== id);
-        }
+        if (isChecked) return Array.from(new Set([...prev, id]));
+        return prev.filter((_id) => _id !== id);
       });
     },
     [setSelectedInvoiceIds],
@@ -500,7 +518,7 @@ export default function ReconciliationBoard() {
                   <div>
                     <span className="font-medium">Itens importados:</span> {data.totals.faturaCount} —{' '}
                     <span className="font-medium">Soma:</span> {data.totals.faturaSum} —{' '}
-                    <span className="font-medium">Beneficiários (vigentes/filtrados):</span> {data.totals.ativosCount}
+                    <span className="font-medium">Beneficiários ativos:</span> {data.totals.ativosCount}
                   </div>
                 </div>
               ) : null}
@@ -525,7 +543,7 @@ export default function ReconciliationBoard() {
                 </TooltipTrigger>
                 <TooltipContent side="bottom" align="start" className="space-y-2">
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="h-2 w-2 rounded-full bg-emerald-500" /> <span>Convergentes</span>
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" /> <span>Conformes</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     <span className="h-2 w-2 rounded-full bg-red-500" /> <span>Divergentes</span>
@@ -645,13 +663,19 @@ export default function ReconciliationBoard() {
             <div className="text-sm text-destructive">Falha ao carregar a conciliação.</div>
           ) : (
             <>
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+              {/* KPIs principais */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <StatCard title="Beneficiários (filtrados)" value={data.totals.ativosCount} />
                 <StatCard title="Itens importados" value={data.totals.faturaCount} hint={data.totals.faturaSum} />
                 <StatCard title="Divergentes" value={data.totals.mismatched} />
                 <StatCard title="Duplicados" value={data.totals.duplicates} />
-                {/* NOVO: convergentes */}
-                <StatCard title="Convergentes" value={data.totals.matched} />
+              </div>
+
+              {/* Cards financeiros da fatura */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <StatCard title="Fatura (todos)" value={allInvoiceSum} hint={`${tabs.allInvoice.length} itens`} />
+                <StatCard title="Convergentes (OK)" value={okInvoiceSum} hint={`${okRows.length} itens`} />
+                <StatCard title="Só na fatura" value={onlyInInvoiceSum} hint={`${tabs.onlyInInvoice.length} itens`} />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -702,7 +726,17 @@ export default function ReconciliationBoard() {
                       <SelectItem value="csv">CSV</SelectItem>
                     </SelectContent>
                   </Select>
-                  <a href={buildExportUrl(activeTab)} rel="noopener" className="inline-block">
+                  <a
+                    href={buildExportUrl(activeTab)}
+                    rel="noopener"
+                    className="inline-block"
+                    onClick={(e) => {
+                      if (activeTab === 'okInvoice') {
+                        e.preventDefault();
+                        toast.info('Exportação da aba "Convergentes" ainda não está disponível.');
+                      }
+                    }}
+                  >
                     <Button>Exportar aba atual</Button>
                   </a>
                   <a
@@ -736,15 +770,14 @@ export default function ReconciliationBoard() {
                   <TabsTrigger value="onlyInInvoice">Só na fatura ({data.totals.onlyInInvoice})</TabsTrigger>
                   <TabsTrigger value="onlyInRegistry">Só no cadastro ({data.totals.onlyInRegistry})</TabsTrigger>
                   <TabsTrigger value="duplicates">Duplicados ({data.totals.duplicates})</TabsTrigger>
-                  {/* NOVO: Convergentes */}
-                  <TabsTrigger value="matched">Convergentes ({data.totals.matched})</TabsTrigger>
-                  <TabsTrigger value="allInvoice">Fatura (todos) {(data.tabs.allInvoice ?? []).length > 0 ? `(${(data.tabs.allInvoice ?? []).length})` : ''}</TabsTrigger>
+                  <TabsTrigger value="okInvoice">Convergentes (OK) ({okRows.length})</TabsTrigger>
+                  <TabsTrigger value="allInvoice">Fatura (todos) ({tabs.allInvoice.length})</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="mismatched">
                   <ReconTable
                     columns={['Beneficiário', 'CPF', 'Cobrado', 'Mensalidade', 'Diferença']}
-                    data={data.tabs.mismatched}
+                    data={tabs.mismatched}
                     getRowVariant={() => 'error'}
                     emphasizeCols={[4]}
                     selectedIds={selectedInvoiceIds}
@@ -755,7 +788,7 @@ export default function ReconciliationBoard() {
                 <TabsContent value="onlyInInvoice">
                   <ReconTable
                     columns={['Beneficiário', 'CPF', 'Valor Cobrado']}
-                    data={data.tabs.onlyInInvoice}
+                    data={tabs.onlyInInvoice}
                     selectedIds={selectedInvoiceIds}
                     onSelectChange={handleSelectChange}
                   />
@@ -764,17 +797,16 @@ export default function ReconciliationBoard() {
                 <TabsContent value="onlyInRegistry">
                   <ReconTable
                     columns={['Beneficiário', 'CPF', 'Mensalidade']}
-                    data={data.tabs.onlyInRegistry}
+                    data={tabs.onlyInRegistry}
                     selectedIds={selectedInvoiceIds}
                     onSelectChange={handleSelectChange}
-                    selectable={false}
                   />
                 </TabsContent>
 
                 <TabsContent value="duplicates">
                   <ReconTable
                     columns={['Beneficiário', 'CPF', 'Ocorrências', 'Soma cobrada', 'Valores']}
-                    data={data.tabs.duplicates}
+                    data={tabs.duplicates}
                     getRowVariant={() => 'error'}
                     emphasizeCols={[4]}
                     selectedIds={selectedInvoiceIds}
@@ -782,11 +814,10 @@ export default function ReconciliationBoard() {
                   />
                 </TabsContent>
 
-                {/* NOVO: Convergentes */}
-                <TabsContent value="matched">
+                <TabsContent value="okInvoice">
                   <ReconTable
                     columns={['Beneficiário', 'CPF', 'Cobrado', 'Mensalidade', 'Diferença', 'Status']}
-                    data={data.tabs.matched ?? []}
+                    data={okRows}
                     getRowVariant={() => 'ok'}
                     emphasizeCols={[4, 5]}
                     selectedIds={selectedInvoiceIds}
@@ -797,7 +828,7 @@ export default function ReconciliationBoard() {
                 <TabsContent value="allInvoice">
                   <ReconTable
                     columns={['Beneficiário', 'CPF', 'Cobrado', 'Mensalidade', 'Diferença', 'Status']}
-                    data={data.tabs.allInvoice ?? []}
+                    data={tabs.allInvoice}
                     getRowVariant={(row) => {
                       const status = row.status;
                       if (status === 'DIVERGENTE') return 'error';
