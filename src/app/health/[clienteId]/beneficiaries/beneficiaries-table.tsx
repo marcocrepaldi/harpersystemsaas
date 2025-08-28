@@ -8,21 +8,20 @@ import { computeAgeInfo, DEFAULT_AGE_BANDS, type AgeBand } from "./age-bands";
 
 /* ============================== Tipos ============================== */
 
+/**
+ * Representa a estrutura de um registro de beneficiário vindo da API.
+ */
 type Row = {
   id: string;
   nomeCompleto: string;
   cpf?: string | null;
-
-  // Pode vir “TITULAR”, “CONJUGE”, “FILHO”, “DEPENDENTE”, “Titular”, “Dependente”…
+  // Pode vir "TITULAR", "CONJUGE", "FILHO", "DEPENDENTE", "Titular", "Dependente"…
   tipo: string;
-
   dataNascimento?: string | null;
   dataEntrada: string;
   valorMensalidade?: string | null;
-
   titularId?: string | null;
   titularNome?: string | null;
-
   plano?: string | null;
   centroCusto?: string | null;
   faixaEtaria?: string | null;
@@ -31,6 +30,11 @@ type Row = {
   comentario?: string | null;
 };
 
+/**
+ * Propriedades esperadas pelo componente BeneficiariesTable.
+ * @param items Array de registros de beneficiários.
+ * @param ageBands Faixas etárias para cálculo de idade.
+ */
 export type BeneficiariesTableProps = {
   items: Row[];
   ageBands?: AgeBand[];
@@ -38,23 +42,37 @@ export type BeneficiariesTableProps = {
 
 /* ============================== Utils ============================== */
 
+/**
+ * Tipos de beneficiários normalizados.
+ */
 type NormTipo = "TITULAR" | "CONJUGE" | "FILHO" | "DEPENDENTE";
 
+/**
+ * Normaliza a string de tipo de beneficiário para um valor padronizado.
+ * Lida com variações como maiúsculas/minúsculas e legados.
+ */
 function normalizeTipo(raw: string | undefined | null): NormTipo {
   const s = String(raw || "").trim().toUpperCase();
   if (s.startsWith("TITULAR")) return "TITULAR";
   if (s.startsWith("CONJUGE") || s.startsWith("CÔNJUGE")) return "CONJUGE";
   if (s.startsWith("FILHO")) return "FILHO";
-  // fallback p/ legado (“Dependente” / “DEPENDENTE” / outros)
+  // fallback para tipos legados (ex: "Dependente" / "DEPENDENTE")
   return "DEPENDENTE";
 }
 
+/**
+ * Retorna a classe CSS para o background de uma linha com base no nível de alerta.
+ */
 function rowBg(alert: "none" | "moderate" | "high"): string {
   if (alert === "high") return "bg-red-50";
   if (alert === "moderate") return "bg-yellow-50";
   return "";
 }
 
+/**
+ * Formata um valor numérico para o formato de moeda brasileira (R$).
+ * Lida com valores nulos ou inválidos.
+ */
 function moneyBR(v?: string | null) {
   if (v == null || v === "") return "—";
   const n = Number(String(v).replace(",", "."));
@@ -62,6 +80,10 @@ function moneyBR(v?: string | null) {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 2 });
 }
 
+/**
+ * Formata uma data ISO (YYYY-MM-DD) para o formato DD/MM/YYYY.
+ * Retorna "—" para valores nulos.
+ */
 function fmtDateYmd(v?: string | null) {
   if (!v) return "—";
   const s = String(v);
@@ -73,13 +95,17 @@ function fmtDateYmd(v?: string | null) {
 
 /* ============================ Componente =========================== */
 
+/**
+ * Representa um registro de linha com dados normalizados e informações adicionais.
+ */
 type AugRow = Omit<Row, "tipo"> & {
   tipo: NormTipo;
   _ageInfo: ReturnType<typeof computeAgeInfo>;
 };
 
 export default function BeneficiariesTable({ items, ageBands = DEFAULT_AGE_BANDS }: BeneficiariesTableProps) {
-  // 1) Normaliza tipo e adiciona AgeInfo
+  // 1) Normaliza o tipo e adiciona informações de idade (age-bands, alerts)
+  // `useMemo` evita re-cálculos desnecessários
   const withAge = useMemo<AugRow[]>(() => {
     const now = new Date();
     return items.map((r) => ({
@@ -89,9 +115,10 @@ export default function BeneficiariesTable({ items, ageBands = DEFAULT_AGE_BANDS
     }));
   }, [items, ageBands]);
 
-  // 2) Monta hierarquia: Titular -> Cônjuges -> Filhos
+  // 2) Monta a hierarquia: Titular -> Cônjuges -> Filhos
+  // `useMemo` otimiza o processamento e a ordenação
   const rows = useMemo<AugRow[]>(() => {
-    // dependentes por titularId
+    // Agrupa dependentes por titularId em um Map para acesso rápido
     const deps = new Map<string, AugRow[]>();
     for (const r of withAge) {
       if (r.tipo !== "TITULAR" && r.titularId) {
@@ -101,12 +128,12 @@ export default function BeneficiariesTable({ items, ageBands = DEFAULT_AGE_BANDS
       }
     }
 
-    // titulares
+    // Filtra e ordena os titulares
     const titulares = withAge
       .filter((r) => r.tipo === "TITULAR")
       .sort((a, b) => a.nomeCompleto.localeCompare(b.nomeCompleto));
 
-    // ordem: CONJUGE primeiro, depois FILHO, depois “DEPENDENTE” (fallback legado)
+    // Função de ranking para ordenar dependentes: Cônjuge > Filho > Outros
     const rank = (x: AugRow) => (x.tipo === "CONJUGE" ? 0 : x.tipo === "FILHO" ? 1 : 2);
 
     const out: AugRow[] = [];
@@ -120,7 +147,7 @@ export default function BeneficiariesTable({ items, ageBands = DEFAULT_AGE_BANDS
       out.push(...children);
     }
 
-    // órfãos (sem titularId) e/ou casos em que o titular não veio no payload
+    // Adiciona dependentes "órfãos" (sem titularId)
     const orfaos = withAge.filter((r) => r.tipo !== "TITULAR" && !r.titularId);
     if (orfaos.length) {
       orfaos.sort((a, b) => {
@@ -131,7 +158,7 @@ export default function BeneficiariesTable({ items, ageBands = DEFAULT_AGE_BANDS
       out.push(...orfaos);
     }
 
-    // se por algum motivo nada foi classificado acima, devolve lista plana
+    // Se a hierarquia não for montada, retorna a lista original.
     return out.length ? out : withAge;
   }, [withAge]);
 
@@ -159,6 +186,7 @@ export default function BeneficiariesTable({ items, ageBands = DEFAULT_AGE_BANDS
               </tr>
             </thead>
             <tbody>
+              {/* Mapeia e renderiza cada linha de dados */}
               {rows.map((r) => {
                 const ai = r._ageInfo;
                 const bg = rowBg(ai.alert);
@@ -173,7 +201,7 @@ export default function BeneficiariesTable({ items, ageBands = DEFAULT_AGE_BANDS
 
                 const isDependente = r.tipo !== "TITULAR";
 
-                // Texto “amigável” do tipo para badge
+                // Texto "amigável" do tipo para o badge
                 const tipoLabel =
                   r.tipo === "CONJUGE" ? "Cônjuge" : r.tipo === "FILHO" ? "Filho(a)" : r.tipo === "TITULAR" ? "Titular" : "Dependente";
 

@@ -199,19 +199,24 @@ function MonthPicker({
 // ✅ Tipo genérico para as linhas das tabelas com ID
 type ReconRowWithId = { id: string } & Record<string, any>;
 
-// ---------- pequenos componentes ----------
+// ---------- Column-aware table (corrige ordem das colunas) ----------
+type ColumnDef<T extends ReconRowWithId> = {
+  header: string;
+  key: keyof T & string;
+  align?: 'left' | 'right' | 'center';
+  emphasize?: boolean;
+};
+
 function ReconTable<T extends ReconRowWithId>({
   columns,
   data,
   getRowVariant,
-  emphasizeCols = [],
   selectedIds,
   onSelectChange,
 }: {
-  columns: string[];
+  columns: ColumnDef<T>[];
   data: T[];
   getRowVariant?: (row: T) => RowVariant;
-  emphasizeCols?: number[];
   selectedIds: string[];
   onSelectChange: (id: string, isChecked: boolean) => void;
 }) {
@@ -236,7 +241,9 @@ function ReconTable<T extends ReconRowWithId>({
               )}
             </TableHead>
             {columns.map((c) => (
-              <TableHead key={c}>{c}</TableHead>
+              <TableHead key={c.header} className={c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : ''}>
+                {c.header}
+              </TableHead>
             ))}
           </TableRow>
         </TableHeader>
@@ -256,6 +263,7 @@ function ReconTable<T extends ReconRowWithId>({
                   : variant === 'ok'
                   ? 'bg-emerald-50/70 hover:bg-emerald-50'
                   : undefined;
+
               return (
                 <TableRow key={r.id} className={rowClass}>
                   <TableCell>
@@ -265,20 +273,19 @@ function ReconTable<T extends ReconRowWithId>({
                       aria-label="Selecionar linha"
                     />
                   </TableCell>
-                  {Object.values(r).slice(1).map((cell, j) => {
-                    const emphasize = emphasizeCols.includes(j) && (variant === 'error' || variant === 'ok');
-                    const emphasizeClass =
-                      variant === 'error'
+                  {columns.map((col) => {
+                    let cell: any = r[col.key];
+                    if (Array.isArray(cell)) cell = cell.join(', ');
+                    const alignCls = col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : '';
+                    const emphasizeCls =
+                      col.emphasize && variant === 'error'
                         ? 'font-semibold text-red-700'
-                        : variant === 'ok'
+                        : col.emphasize && variant === 'ok'
                         ? 'font-semibold text-emerald-700'
-                        : undefined;
+                        : '';
                     return (
-                      <TableCell
-                        key={`${r.id}-${j}`}
-                        className={cx(j >= columns.length - 2 ? 'text-right' : '', emphasize ? emphasizeClass : '')}
-                      >
-                        {String(cell)}
+                      <TableCell key={`${r.id}-${col.key}`} className={cx(alignCls, emphasizeCls)}>
+                        {String(cell ?? '—')}
                       </TableCell>
                     );
                   })}
@@ -342,7 +349,7 @@ export default function ReconciliationBoard() {
   const [activeTab, setActiveTab] = React.useState<
     'mismatched' | 'onlyInInvoice' | 'onlyInRegistry' | 'duplicates' | 'okInvoice' | 'allInvoice'
   >('mismatched');
-  const [format, setFormat] = React.useState<'xlsx' | 'csv'>('xlsx');
+  const [exportFormat, setExportFormat] = React.useState<'xlsx' | 'csv'>('xlsx');
 
   // filtros
   const [tipo, setTipo] = React.useState<'ALL' | 'TITULAR' | 'DEPENDENTE'>('ALL');
@@ -445,7 +452,7 @@ export default function ReconciliationBoard() {
   const buildExportUrl = (tab: string) => {
     const params = new URLSearchParams();
     params.set('mes', mes);
-    params.set('format', format);
+    params.set('format', exportFormat);
     params.set('tab', tab);
     if (tipo && tipo !== 'ALL') params.set('tipo', tipo);
     if (plano) params.set('plano', plano);
@@ -717,7 +724,7 @@ export default function ReconciliationBoard() {
 
               <div className="flex items-center justify-between mt-2 mb-3">
                 <div className="flex items-center gap-2">
-                  <Select value={format} onValueChange={(v) => setFormat(v as any)}>
+                  <Select value={exportFormat} onValueChange={(v) => setExportFormat(v as any)}>
                     <SelectTrigger className="w-[140px]">
                       <SelectValue placeholder="Formato" />
                     </SelectTrigger>
@@ -744,7 +751,7 @@ export default function ReconciliationBoard() {
                     rel="noopener"
                     className="inline-block"
                     onClick={(e) => {
-                      if (format === 'csv') {
+                      if (exportFormat === 'csv') {
                         e.preventDefault();
                         alert('CSV não suporta exportar "Todas". Selecione XLSX ou escolha uma aba específica.');
                       }
@@ -776,10 +783,15 @@ export default function ReconciliationBoard() {
 
                 <TabsContent value="mismatched">
                   <ReconTable
-                    columns={['Beneficiário', 'CPF', 'Cobrado', 'Mensalidade', 'Diferença']}
+                    columns={[
+                      { header: 'Beneficiário', key: 'nome' },
+                      { header: 'CPF', key: 'cpf' },
+                      { header: 'Cobrado', key: 'valorCobrado', align: 'right', emphasize: true },
+                      { header: 'Mensalidade', key: 'valorMensalidade', align: 'right' },
+                      { header: 'Diferença', key: 'diferenca', align: 'right', emphasize: true },
+                    ]}
                     data={tabs.mismatched}
                     getRowVariant={() => 'error'}
-                    emphasizeCols={[4]}
                     selectedIds={selectedInvoiceIds}
                     onSelectChange={handleSelectChange}
                   />
@@ -787,7 +799,11 @@ export default function ReconciliationBoard() {
 
                 <TabsContent value="onlyInInvoice">
                   <ReconTable
-                    columns={['Beneficiário', 'CPF', 'Valor Cobrado']}
+                    columns={[
+                      { header: 'Beneficiário', key: 'nome' },
+                      { header: 'CPF', key: 'cpf' },
+                      { header: 'Valor Cobrado', key: 'valorCobrado', align: 'right' },
+                    ]}
                     data={tabs.onlyInInvoice}
                     selectedIds={selectedInvoiceIds}
                     onSelectChange={handleSelectChange}
@@ -796,7 +812,11 @@ export default function ReconciliationBoard() {
 
                 <TabsContent value="onlyInRegistry">
                   <ReconTable
-                    columns={['Beneficiário', 'CPF', 'Mensalidade']}
+                    columns={[
+                      { header: 'Beneficiário', key: 'nome' },
+                      { header: 'CPF', key: 'cpf' },
+                      { header: 'Mensalidade', key: 'valorMensalidade', align: 'right' },
+                    ]}
                     data={tabs.onlyInRegistry}
                     selectedIds={selectedInvoiceIds}
                     onSelectChange={handleSelectChange}
@@ -805,10 +825,15 @@ export default function ReconciliationBoard() {
 
                 <TabsContent value="duplicates">
                   <ReconTable
-                    columns={['Beneficiário', 'CPF', 'Ocorrências', 'Soma cobrada', 'Valores']}
+                    columns={[
+                      { header: 'Beneficiário', key: 'nome' },
+                      { header: 'CPF', key: 'cpf' },
+                      { header: 'Ocorrências', key: 'ocorrencias', align: 'right' },
+                      { header: 'Soma cobrada', key: 'somaCobrada', align: 'right', emphasize: true },
+                      { header: 'Valores', key: 'valores' },
+                    ]}
                     data={tabs.duplicates}
                     getRowVariant={() => 'error'}
-                    emphasizeCols={[4]}
                     selectedIds={selectedInvoiceIds}
                     onSelectChange={handleSelectChange}
                   />
@@ -816,10 +841,16 @@ export default function ReconciliationBoard() {
 
                 <TabsContent value="okInvoice">
                   <ReconTable
-                    columns={['Beneficiário', 'CPF', 'Cobrado', 'Mensalidade', 'Diferença', 'Status']}
-                    data={okRows}
+                    columns={[
+                      { header: 'Beneficiário', key: 'nome' },
+                      { header: 'CPF', key: 'cpf' },
+                      { header: 'Cobrado', key: 'valorCobrado', align: 'right' },
+                      { header: 'Mensalidade', key: 'valorMensalidade', align: 'right' },
+                      { header: 'Diferença', key: 'diferenca', align: 'right', emphasize: true },
+                      { header: 'Status', key: 'status' },
+                    ]}
+                    data={okRows as any}
                     getRowVariant={() => 'ok'}
-                    emphasizeCols={[4, 5]}
                     selectedIds={selectedInvoiceIds}
                     onSelectChange={handleSelectChange}
                   />
@@ -827,7 +858,14 @@ export default function ReconciliationBoard() {
 
                 <TabsContent value="allInvoice">
                   <ReconTable
-                    columns={['Beneficiário', 'CPF', 'Cobrado', 'Mensalidade', 'Diferença', 'Status']}
+                    columns={[
+                      { header: 'Beneficiário', key: 'nome' },
+                      { header: 'CPF', key: 'cpf' },
+                      { header: 'Cobrado', key: 'valorCobrado', align: 'right' },
+                      { header: 'Mensalidade', key: 'valorMensalidade', align: 'right' },
+                      { header: 'Diferença', key: 'diferenca', align: 'right', emphasize: true },
+                      { header: 'Status', key: 'status' },
+                    ]}
                     data={tabs.allInvoice}
                     getRowVariant={(row) => {
                       const status = row.status;
@@ -835,7 +873,6 @@ export default function ReconciliationBoard() {
                       if (status === 'OK') return 'ok';
                       return undefined;
                     }}
-                    emphasizeCols={[4, 5]}
                     selectedIds={selectedInvoiceIds}
                     onSelectChange={handleSelectChange}
                   />

@@ -11,16 +11,15 @@ import { unstable_noStore as noStore } from 'next/cache';
 type BeneficiaryData = {
   id: string;
   clientId?: string; // pode vir da API, mas não vai para o form
-  status?: string;
   createdAt?: string;
   updatedAt?: string;
 
   nomeCompleto: string;
   cpf?: string | null;
-  tipo: 'TITULAR' | 'DEPENDENTE';
+  tipo: 'TITULAR' | 'FILHO' | 'CONJUGE';
   dataEntrada: string;
   dataNascimento?: string | null;
-  valorMensalidade?: string | null;
+  valorMensalidade?: string | number | null;
   titularId?: string | null;
   matricula?: string | null;
   carteirinha?: string | null;
@@ -31,6 +30,13 @@ type BeneficiaryData = {
   estado?: string | null;
   contrato?: string | null;
   comentario?: string | null;
+
+  // novos campos do schema
+  status?: 'ATIVO' | 'INATIVO';
+  dataSaida?: string | null;
+  regimeCobranca?: 'MENSAL' | 'DIARIO' | null;
+  motivoMovimento?: 'INCLUSAO' | 'EXCLUSAO' | 'ALTERACAO' | 'NENHUM' | null;
+  observacoes?: string | null;
 };
 
 // helper: formata para <input type="date" />
@@ -53,11 +59,10 @@ export default async function EditBeneficiaryPage({
     return notFound();
   }
 
-  // Remover campos proibidos do state inicial (evita vazar no PATCH)
+  // Remover apenas campos não editáveis/irrelevantes do state inicial
   const {
     id: _id,
     clientId: _clientId,
-    status: _status,
     createdAt: _createdAt,
     updatedAt: _updatedAt,
     ...safe
@@ -65,12 +70,28 @@ export default async function EditBeneficiaryPage({
 
   const initialValues = {
     ...safe,
+    // normalizações para o form
     dataEntrada: toDateInput(safe.dataEntrada),
-    dataNascimento: toDateInput(safe.dataNascimento ?? undefined),
-    valorMensalidade: safe.valorMensalidade ?? '',
-    sexo: safe.sexo ?? undefined,
+    dataNascimento: toDateInput(safe.dataNascimento ?? null),
+    dataSaida: toDateInput(safe.dataSaida ?? null),
+
+    // garantir string no campo de valor quando vier number/decimal
+    valorMensalidade:
+      safe.valorMensalidade == null ? '' : String(safe.valorMensalidade),
+
+    // undefined em vez de null para selects controlados
+    sexo: (safe.sexo ?? undefined) as 'M' | 'F' | undefined,
     titularId: safe.titularId ?? undefined,
-    tipo: safe.tipo ?? 'TITULAR',
+    tipo: (safe.tipo ?? 'TITULAR') as 'TITULAR' | 'FILHO' | 'CONJUGE',
+    status: (safe.status ?? undefined) as 'ATIVO' | 'INATIVO' | undefined,
+    regimeCobranca: (safe.regimeCobranca ?? undefined) as 'MENSAL' | 'DIARIO' | undefined,
+    motivoMovimento: (safe.motivoMovimento ?? undefined) as
+      | 'INCLUSAO'
+      | 'EXCLUSAO'
+      | 'ALTERACAO'
+      | 'NENHUM'
+      | undefined,
+    observacoes: safe.observacoes ?? '',
   } as const;
 
   return (

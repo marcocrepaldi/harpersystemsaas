@@ -23,10 +23,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Input } from '@/components/ui/input';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // ✅ NOVO: para os novos filtros
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // Gráfico
 import { GraficoIdadeBeneficiarios } from "./graficoIdadeBeneficiarios";
+
+// Modal de erros de importação
+import { ImportErrorsModal } from '@/components/beneficiaries/import-errors-modal';
 
 // Ícones
 import { MoreVertical, SlidersHorizontal, Search, X, Upload, PlusCircle, Loader2, Users, UserCheck, DollarSign } from "lucide-react";
@@ -60,8 +63,23 @@ type BeneficiaryRow = {
   status: "Ativo" | "Inativo";
 };
 
-type UploadResult = { created: number; updated: number; inactivated: number; errors: any[]; total: number; }
-
+type UploadResult = {
+  ok: boolean;
+  summary: {
+    totalLinhas: number;
+    processados: number;
+    criados: number;
+    atualizados: number;
+    rejeitados: number;
+    porMotivo?: { motivo: string; count: number }[];
+    porTipo?: {
+      titulares: { criados: number; atualizados: number };
+      dependentes: { criados: number; atualizados: number };
+    };
+  };
+  // amostra dos erros do último upload (pode vir vazio)
+  errors: any[];
+};
 type ColumnKey =
   | "select" | "nomeCompleto" | "cpf" | "tipo"
   | "dataEntrada" | "dataNascimento" | "idade" | "faixaEtaria"
@@ -70,7 +88,7 @@ type ColumnKey =
   | "titular" | "regimeCobranca" | "motivoMovimento" | "observacoes"
   | "status" | "comentario" | "actions";
 
-// ✅ MELHORIA: Agrupando as colunas em categorias para o dropdown
+// ✅ Agrupamento de colunas (sem mudanças de estrutura)
 const ALL_COLUMNS: { key: ColumnKey; label: string; default?: boolean; category?: string; }[] = [
   { key: "select", label: "", default: true },
   { key: "nomeCompleto", label: "Nome", default: true, category: "Dados Principais" },
@@ -101,7 +119,7 @@ const ALL_COLUMNS: { key: ColumnKey; label: string; default?: boolean; category?
 
 const COLS_LS_KEY = "health.beneficiaries.visibleColumns";
 
-// Faixas etárias & alertas (sem alteração)
+// ===== Faixas etárias & alertas =====
 type AgeBand = { min: number; max: number; label: string };
 const AGE_BANDS: AgeBand[] = [
   { min: 0,  max: 18, label: "0–18" },
@@ -151,7 +169,7 @@ function computeAgeInfo(dobIso?: string | null, ref = new Date()): AgeInfo {
   return { age, band, monthsUntilBandChange: months, nextBandChangeDate: changeDate, alert };
 }
 
-// Ações por linha (sem alteração)
+// ===== Ações por linha =====
 function RowActions({ id, clienteId }: { id: string; clienteId: string }) {
   const router = useRouter();
   const qc = useQueryClient();
@@ -203,16 +221,42 @@ export default function BeneficiariesPage() {
   );
 }
 
+// ===== Normalização de filtros para o backend =====
+const normalizeTipo = (v: string | null): string | undefined => {
+  if (!v) return undefined;
+  const s = v.trim().toLowerCase();
+  if (s === 'todos' || s === 'all' || s === '') return undefined;
+  if (s === 'titular') return 'TITULAR';
+  if (s === 'filho') return 'FILHO';
+  if (s === 'cônjuge' || s === 'conjuge') return 'CONJUGE';
+  if (s === 'dependente') return 'DEPENDENTE';
+  return v.toUpperCase();
+};
+const normalizeStatus = (v: string | null): string | undefined => {
+  if (!v) return undefined;
+  const s = v.trim().toLowerCase();
+  if (s === 'todos' || s === 'all' || s === '') return undefined;
+  if (s === 'ativo') return 'ATIVO';
+  if (s === 'inativo') return 'INATIVO';
+  return v.toUpperCase();
+};
+
 function BeneficiariesPageInner() {
   const { clienteId } = useParams<{ clienteId: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
   const qc = useQueryClient();
 
+  // MODAL de erros
+// MODAL de erros
+const [errorsOpen, setErrorsOpen] = React.useState(false);
+const [errorDetails, setErrorDetails] = React.useState<any[] | null>(null);
+const [uploadSummary, setUploadSummary] = React.useState<UploadResult["summary"] | null>(null);
+
+
   const search = searchParams.get("search") ?? "";
-  const tipo = searchParams.get("tipo") ?? ""; // ✅ NOVO: estado do filtro "tipo"
-  const status = searchParams.get("status") ?? ""; // ✅ NOVO: estado do filtro "status"
-  const plano = searchParams.get("plano") ?? ""; // ✅ NOVO: estado do filtro "plano"
+  const tipoParam = searchParams.get("tipo") ?? "";
+  const statusParam = searchParams.get("status") ?? "";
   const [searchText, setSearchText] = React.useState(search);
 
   const [visibleCols, setVisibleCols] = React.useState<Set<ColumnKey>>(() => {
@@ -222,28 +266,48 @@ function BeneficiariesPageInner() {
   React.useEffect(() => { try { localStorage.setItem(COLS_LS_KEY, JSON.stringify([...visibleCols])); } catch {} }, [visibleCols]);
 
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
-  const [errorDetails, setErrorDetails] = React.useState<any[] | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  const uploadMutation = useMutation({
-    mutationFn: (formData: FormData) => apiFetch<UploadResult>(`/clients/${clienteId}/beneficiaries/upload`, { method: 'POST', body: formData }),
-    onSuccess: (data) => {
-      const { created = 0, updated = 0, errors = [] } = data;
-      const inactivated = data.inactivated ?? 0;
-      const description = `Criados: ${created}, Atualizados: ${updated}, Inativados: ${inactivated}.`;
-      if (errors.length > 0) {
-        toast.warning(`Importação concluída com ${errors.length} erro(s).`, {
-          description: `${description} Clique para ver os detalhes.`,
-          duration: 10000,
-          action: { label: 'Ver Detalhes', onClick: () => setErrorDetails(errors) }
-        });
-      } else {
-        toast.success('Arquivo processado com sucesso!', { description });
-      }
-      qc.invalidateQueries({ queryKey: ['beneficiaries'] });
-    },
-    onError: (e) => toast.error('Falha ao importar arquivo.', { description: errorMessage(e) }),
-  });
+const uploadMutation = useMutation({
+  mutationFn: (formData: FormData) =>
+    apiFetch<UploadResult>(`/clients/${clienteId}/beneficiaries/upload`, {
+      method: 'POST',
+      body: formData,
+    }),
+
+  onSuccess: (resp) => {
+    const s = resp.summary;
+    setUploadSummary(s);          // guarda o resumo para o modal
+    setErrorDetails(resp.errors); // guarda a amostra dos erros (pode ser [])
+
+    const baseDesc = `Criados: ${s.criados}, Atualizados: ${s.atualizados}.`;
+    const topErros =
+      s.porMotivo && s.porMotivo.length
+        ? s.porMotivo.slice(0, 3).map(e => `${e.motivo}: ${e.count}`).join(' • ')
+        : '—';
+
+    if (resp.errors?.length > 0 || s.rejeitados > 0) {
+      setErrorsOpen(true); // abre automaticamente quando há erros
+      toast.warning(`Importação concluída com ${s.rejeitados} erro(s).`, {
+        description: `${baseDesc} Top erros: ${topErros}`,
+        duration: 12000,
+        action: { label: 'Ver detalhes', onClick: () => setErrorsOpen(true) },
+      });
+    } else {
+      toast.success('Arquivo processado com sucesso!', {
+        description: baseDesc,
+        duration: 8000,
+        action: { label: 'Ver resumo', onClick: () => setErrorsOpen(true) }, // permite abrir o modal mesmo sem erro
+      });
+    }
+
+    qc.invalidateQueries({ queryKey: ['beneficiaries'] });
+  },
+
+  onError: (e) =>
+    toast.error('Falha ao importar arquivo.', { description: errorMessage(e) }),
+});
+
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -252,12 +316,16 @@ function BeneficiariesPageInner() {
   };
   const handleImportClick = () => { fileInputRef.current?.click(); };
 
-  // ✅ MELHORIA: A consulta agora inclui todos os filtros
+  // ✅ Consulta com filtros normalizados para o backend
   const { data, isFetching, isError, error, refetch } = useQuery<PageResult<BeneficiaryRow>>({
-    queryKey: ["beneficiaries", { clienteId, search, tipo, status, plano }],
+    queryKey: ["beneficiaries", { clienteId, search, tipo: normalizeTipo(tipoParam) ?? 'ALL', status: normalizeStatus(statusParam) ?? 'ALL' }],
     queryFn: async () =>
       apiFetch<PageResult<BeneficiaryRow>>(`/clients/${clienteId}/beneficiaries`, {
-        query: { search: search || undefined, tipo: tipo || undefined, status: status || undefined, plano: plano || undefined },
+        query: {
+          search: search || undefined,
+          tipo: normalizeTipo(tipoParam),
+          status: normalizeStatus(statusParam),
+        },
       }),
     staleTime: 10_000,
   });
@@ -288,6 +356,7 @@ function BeneficiariesPageInner() {
     return finalRows;
   }, [items]);
 
+  type AgeInfo = ReturnType<typeof computeAgeInfo>;
   const rowsWithAge = React.useMemo(() => {
     const now = new Date();
     return hierarchicalRows.map((b) => {
@@ -356,13 +425,11 @@ function BeneficiariesPageInner() {
   const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   const formatDate = (d?: string | null) => d ? new Date(d).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : "—";
   
-  // ✅ NOVO: Definir as categorias de colunas para o menu
+  // Categorias de colunas para o menu
   const columnCategories = React.useMemo(() => {
     return ALL_COLUMNS.reduce((acc, col) => {
       const category = col.category || "Outros";
-      if (!acc[category]) {
-        acc[category] = [];
-      }
+      if (!acc[category]) acc[category] = [];
       acc[category].push(col);
       return acc;
     }, {} as Record<string, typeof ALL_COLUMNS>);
@@ -398,27 +465,34 @@ function BeneficiariesPageInner() {
               )}
             </form>
 
-            {/* ✅ NOVO: Filtros avançados */}
-            <Select value={tipo || "todos"} onValueChange={(v) => pushParams({ tipo: v === "todos" ? undefined : v })}>
-              <SelectTrigger className="w-[120px]">
+            {/* ✅ Filtros (valores compatíveis com o backend) */}
+            <Select
+              value={normalizeTipo(tipoParam) ?? "ALL"}
+              onValueChange={(v) => pushParams({ tipo: v === "ALL" ? undefined : v })}
+            >
+              <SelectTrigger className="w-[140px]">
                 <SelectValue placeholder="Tipo" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="todos">Tipo (Todos)</SelectItem>
-                <SelectItem value="Titular">Titular</SelectItem>
-                <SelectItem value="Filho">Filho</SelectItem>
-                <SelectItem value="Cônjuge">Cônjuge</SelectItem>
+                <SelectItem value="ALL">Tipo (Todos)</SelectItem>
+                <SelectItem value="TITULAR">Titular</SelectItem>
+                <SelectItem value="FILHO">Filho</SelectItem>
+                <SelectItem value="CONJUGE">Cônjuge</SelectItem>
+                <SelectItem value="DEPENDENTE">Dependente (Filho/Cônjuge)</SelectItem>
               </SelectContent>
             </Select>
 
-            <Select value={status || "todos"} onValueChange={(v) => pushParams({ status: v === "todos" ? undefined : v })}>
-              <SelectTrigger className="w-[120px]">
+            <Select
+              value={normalizeStatus(statusParam) ?? "ALL"}
+              onValueChange={(v) => pushParams({ status: v === "ALL" ? undefined : v })}
+            >
+              <SelectTrigger className="w-[140px]">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="todos">Status (Todos)</SelectItem>
-                <SelectItem value="Ativo">Ativo</SelectItem>
-                <SelectItem value="Inativo">Inativo</SelectItem>
+                <SelectItem value="ALL">Status (Todos)</SelectItem>
+                <SelectItem value="ATIVO">Ativo</SelectItem>
+                <SelectItem value="INATIVO">Inativo</SelectItem>
               </SelectContent>
             </Select>
 
@@ -440,9 +514,26 @@ function BeneficiariesPageInner() {
               </AlertDialogContent>
             </AlertDialog>
 
+            {/* Botão de upload */}
             <Button variant="outline" onClick={handleImportClick} disabled={uploadMutation.isPending}>
               {uploadMutation.isPending ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processando...</>) : (<><Upload className="mr-2 h-4 w-4" /> Importar</>)}
             </Button>
+
+            {/* ➕ Botão para reabrir o modal a qualquer momento */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setErrorsOpen(true)}
+              disabled={uploadMutation.isPending}
+            >
+              Ver erros de importação
+              {Array.isArray(errorDetails) && errorDetails.length > 0 ? (
+                <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs">
+                  {errorDetails.length}
+                </span>
+              ) : null}
+            </Button>
+
             <Button asChild><Link href={`/health/${clienteId}/beneficiaries/new`}><PlusCircle className="mr-2 h-4 w-4" /> Novo</Link></Button>
 
             <DropdownMenu>
@@ -476,6 +567,15 @@ function BeneficiariesPageInner() {
           className="hidden"
           accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
         />
+
+        {/* MODAL de erros de importação */}
+          <ImportErrorsModal
+            open={errorsOpen}
+            onOpenChange={setErrorsOpen}
+            clientId={clienteId}
+            initialErrors={errorDetails ?? []}
+            summary={uploadSummary}
+          />
 
         <div className="flex flex-1 flex-col gap-6 p-4 pt-0">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -564,7 +664,7 @@ function BeneficiariesPageInner() {
                       </TableHeader>
                       <TableBody>
                         {rowsWithAge.map((b: any) => {
-                          const ai = b._ai as ReturnType<typeof computeAgeInfo>;
+                          const ai: AgeInfo = b._ai;
                           const bg = rowBgByAlert(ai.alert);
                           const showTooltip = ai.alert === "high" || ai.alert === "moderate";
                           const tooltipMsg =
@@ -597,18 +697,17 @@ function BeneficiariesPageInner() {
                                 <TableCell>
                                   {showTooltip ? (
                                     <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <span className="cursor-help underline decoration-dotted">
-                                          {b.idade ?? "—"}
-                                          <span className="ml-2 text-xs text-muted-foreground">
-                                            ({ai.alert === "high" ? "Alerta alto" : "Alerta moderado"})
-                                          </span>
-                                        </span>
+                                      <TooltipTrigger className="text-left font-normal" asChild>
+                                        <div className="flex items-center gap-2">
+                                          <span>{b.idade ?? "—"}</span>
+                                          {ai.alert === "high" && <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />}
+                                          {ai.alert === "moderate" && <div className="h-2 w-2 rounded-full bg-yellow-400" />}
+                                        </div>
                                       </TooltipTrigger>
-                                      <TooltipContent><p>{tooltipMsg}</p></TooltipContent>
+                                      <TooltipContent>{tooltipMsg}</TooltipContent>
                                     </Tooltip>
                                   ) : (
-                                    <span>{b.idade ?? "—"}</span>
+                                    b.idade ?? "—"
                                   )}
                                 </TableCell>
                               )}
@@ -617,24 +716,27 @@ function BeneficiariesPageInner() {
                               {isVisible("centroCusto") && <TableCell>{b.centroCusto ?? "—"}</TableCell>}
                               {isVisible("matricula") && <TableCell>{b.matricula ?? "—"}</TableCell>}
                               {isVisible("carteirinha") && <TableCell>{b.carteirinha ?? "—"}</TableCell>}
-                              {isVisible("valorMensalidade") && <TableCell>{b.valorMensalidade ? brl(b.valorMensalidade) : "—"}</TableCell>}
+                              {isVisible("valorMensalidade") && <TableCell>{b.valorMensalidade != null ? brl(b.valorMensalidade) : "—"}</TableCell>}
                               {isVisible("estado") && <TableCell>{b.estado ?? "—"}</TableCell>}
                               {isVisible("contrato") && <TableCell>{b.contrato ?? "—"}</TableCell>}
                               {isVisible("sexo") && <TableCell>{b.sexo ?? "—"}</TableCell>}
-                              {isVisible("titular") && <TableCell>{b.titularNome ?? b.titularId ?? "—"}</TableCell>}
+                              {isVisible("titular") && <TableCell>{b.titularNome ?? "—"}</TableCell>}
                               {isVisible("regimeCobranca") && <TableCell>{b.regimeCobranca ?? "—"}</TableCell>}
                               {isVisible("motivoMovimento") && <TableCell>{b.motivoMovimento ?? "—"}</TableCell>}
                               {isVisible("observacoes") && <TableCell>{b.observacoes ?? "—"}</TableCell>}
                               {isVisible("status") && <TableCell>{b.status}</TableCell>}
                               {isVisible("comentario") && <TableCell>{b.comentario ?? "—"}</TableCell>}
                               {isVisible("actions") && (
-                                <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                                <TableCell onClick={(e) => e.stopPropagation()} className="text-right">
                                   <RowActions id={b.id} clienteId={clienteId} />
                                 </TableCell>
                               )}
                             </TableRow>
                           );
                         })}
+                        {rowsWithAge.length === 0 && !isFetching && (
+                          <TableRow><TableCell colSpan={ALL_COLUMNS.length} className="h-24 text-center text-muted-foreground">Nenhum beneficiário encontrado.</TableCell></TableRow>
+                        )}
                       </TableBody>
                     </Table>
                   </div>
@@ -643,24 +745,6 @@ function BeneficiariesPageInner() {
             </CardContent>
           </Card>
         </div>
-        
-        {/* ✅ MELHORIA: Completando o AlertDialog para exibir detalhes de erro */}
-        <AlertDialog open={!!errorDetails} onOpenChange={(open) => !open && setErrorDetails(null)}>
-          <AlertDialogContent className="max-w-[calc(100vw-2rem)] md:max-w-screen-md">
-            <AlertDialogHeader>
-              <AlertDialogTitle>Detalhes da Importação</AlertDialogTitle>
-              <AlertDialogDescription>Ocorreram erros durante o processamento do arquivo.</AlertDialogDescription>
-            </AlertDialogHeader>
-            <div className="max-h-[70vh] overflow-y-auto rounded-md border text-sm p-4">
-              <pre className="whitespace-pre-wrap font-mono text-sm">
-                {errorDetails && JSON.stringify(errorDetails, null, 2)}
-              </pre>
-            </div>
-            <AlertDialogFooter>
-              <AlertDialogAction>Fechar</AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
       </SidebarInset>
     </SidebarProvider>
   );

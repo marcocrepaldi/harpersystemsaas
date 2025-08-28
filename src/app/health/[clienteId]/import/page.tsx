@@ -23,6 +23,18 @@ import { ClientSwitch } from "@/components/health/client-switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { UploadDropzone } from "./upload-dropzone";
 
+/* ===================== tipos ===================== */
+type UploadInvoiceResponse = {
+  message?: string;
+  processedRows?: number;
+  totalRows?: number;
+  detectedColumns?: {
+    nome?: string | null;
+    cpf?: string | null;
+    valor?: string | null;
+  };
+};
+
 export default function ImportInvoicePage() {
   const { clienteId } = useParams<{ clienteId: string }>();
   const router = useRouter();
@@ -31,45 +43,68 @@ export default function ImportInvoicePage() {
   const uploadInvoiceMutation = useMutation({
     mutationFn: async (file: File) => {
       if (!clienteId) throw new Error("Cliente inválido.");
+      // cancela upload anterior, se existir
       abortRef.current?.abort();
-      abortRef.current = new AbortController();
+      const controller = new AbortController();
+      abortRef.current = controller;
 
       const formData = new FormData();
       formData.append("file", file);
 
-      return apiFetch<any>(`/clients/${clienteId}/invoices/upload`, {
+      return apiFetch<UploadInvoiceResponse>(`/clients/${clienteId}/invoices/upload`, {
         method: "POST",
         body: formData,
-        signal: abortRef.current.signal,
+        signal: controller.signal,
       });
     },
-onSuccess: (data) => {
-  const okMsg = data?.message || "Fatura importada com sucesso!";
-  const parts: string[] = [];
 
-  if (typeof data?.processedRows === "number" && typeof data?.totalRows === "number") {
-    parts.push(`Processadas: ${data.processedRows}/${data.totalRows}`);
-  }
-  if (data?.detectedColumns) {
-    const d = data.detectedColumns;
-    parts.push(
-      `Detectado -> nome: ${d.nome ?? "—"}, cpf: ${d.cpf ?? "—"}, valor: ${d.valor ?? "—"}`
-    );
-  }
-  toast.success(okMsg, { description: parts.join(" • ") || undefined });
-  router.push(`/health/${clienteId}/reconciliation`);
-},
+    onSuccess: (data) => {
+      const okMsg = data?.message || "Fatura importada com sucesso!";
+      const parts: string[] = [];
+
+      if (typeof data?.processedRows === "number" && typeof data?.totalRows === "number") {
+        parts.push(`Processadas: ${data.processedRows}/${data.totalRows}`);
+      }
+      if (data?.detectedColumns) {
+        const d = data.detectedColumns;
+        parts.push(
+          `Detectado → nome: ${d.nome ?? "—"}, cpf: ${d.cpf ?? "—"}, valor: ${d.valor ?? "—"}`
+        );
+      }
+
+      toast.success(okMsg, { description: parts.join(" • ") || undefined });
+
+      // limpa controller atual
+      abortRef.current = null;
+
+      // vai para conciliação
+      router.push(`/health/${clienteId}/reconciliation`);
+    },
 
     onError: (e) => {
-      const msg = errorMessage(e);
-      if (msg?.toLowerCase().includes("nenhum arquivo")) {
+      const msg = errorMessage(e).toLowerCase();
+
+      // mensagens mais úteis para alguns casos comuns
+      if (msg.includes("nenhum arquivo")) {
         toast.error("Nenhum arquivo enviado.");
+      } else if (msg.includes("413") || msg.includes("payload too large") || msg.includes("entidade muito grande")) {
+        toast.error("Arquivo muito grande.", {
+          description: "Reduza o tamanho do arquivo ou divida em partes.",
+        });
+      } else if (msg.includes("unsupported") || msg.includes("tipo de arquivo")) {
+        toast.error("Tipo de arquivo não suportado.", {
+          description: "Envie um CSV, XLS ou XLSX.",
+        });
       } else {
-        toast.error("Falha ao importar fatura.", { description: msg });
+        toast.error("Falha ao importar fatura.", { description: errorMessage(e) });
       }
+
+      // limpa controller atual se falhou
+      abortRef.current = null;
     },
   });
 
+  // aborta qualquer upload em andamento ao desmontar
   React.useEffect(() => {
     return () => abortRef.current?.abort();
   }, []);
@@ -79,7 +114,7 @@ onSuccess: (data) => {
       if (!file || uploadInvoiceMutation.isPending) return;
       uploadInvoiceMutation.mutate(file);
     },
-    [uploadInvoiceMutation],
+    [uploadInvoiceMutation]
   );
 
   return (
@@ -107,7 +142,7 @@ onSuccess: (data) => {
             </Breadcrumb>
           </div>
           <div className="ml-auto pr-4">
-            <ClientSwitch />
+            <ClientSwitch clienteId={clienteId} />
           </div>
         </header>
 

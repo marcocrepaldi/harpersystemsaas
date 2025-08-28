@@ -35,6 +35,7 @@ export default function HealthClienteHome() {
 
         <div className="flex-1 p-4 pt-0">
           <div className="bg-muted/50 rounded-xl p-6">
+            {/* Bloco dos 3 cards existentes */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Link href={`/health/${clienteId}/beneficiaries`} className="block">
                 <Card className="h-full hover:bg-muted transition">
@@ -59,6 +60,18 @@ export default function HealthClienteHome() {
                   <CardHeader><CardTitle className="text-base">Conciliação</CardTitle></CardHeader>
                   <CardContent className="text-sm text-muted-foreground">
                     Três colunas: divergências, a mais e a menos.
+                  </CardContent>
+                </Card>
+              </Link>
+            </div>
+            
+            {/* NOVO BLOCO para o card de Cadastrar Plano - Garante que ele estará em uma nova linha */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+              <Link href={`/health/${clienteId}/plans/new`} className="block">
+                <Card className="h-full hover:bg-muted transition">
+                  <CardHeader><CardTitle className="text-base">Cadastrar Plano</CardTitle></CardHeader>
+                  <CardContent className="text-sm text-muted-foreground">
+                    Crie um novo plano de saúde para o cliente.
                   </CardContent>
                 </Card>
               </Link>

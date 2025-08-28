@@ -23,7 +23,7 @@ import { Loader2 } from "lucide-react";
 type BeneficiaryPayload = {
   nomeCompleto: string;
   cpf?: string | null;
-  tipo: "TITULAR" | "DEPENDENTE";
+  tipo: "TITULAR" | "FILHO" | "CONJUGE";
   dataEntrada: string;
   dataNascimento?: string | null;
   valorMensalidade?: string | null;
@@ -91,7 +91,7 @@ function normalizeForForm(iv: Partial<BeneficiaryPayload> | any): Partial<Benefi
 
   out.nomeCompleto = trim(iv?.nomeCompleto ?? "");
   out.cpf = onlyDigits(iv?.cpf ?? "") || "";
-  out.tipo = iv?.tipo ?? undefined;
+  out.tipo = iv?.tipo ?? undefined; // espera "TITULAR" | "FILHO" | "CONJUGE"
   out.dataEntrada = toYyyyMmDd(iv?.dataEntrada ?? "") || "";
   out.dataNascimento = toYyyyMmDd(iv?.dataNascimento ?? "") || "";
   out.valorMensalidade = iv?.valorMensalidade ?? "";
@@ -138,14 +138,16 @@ function buildPayload(fd: Partial<BeneficiaryPayload> | any): Partial<Beneficiar
         | "EXCLUSAO"
         | "ALTERACAO"
         | "NENHUM";
+    } else if (k === "tipo") {
+      const t = String(v).toUpperCase();
+      p.tipo = (t === "TITULAR" || t === "FILHO" || t === "CONJUGE" ? (t as any) : "FILHO");
     } else {
       // string/enum/dates em ISO yyyy-mm-dd
-      p[k] = v;
+      (p as any)[k] = v;
     }
   }
 
-  if (p.tipo) p.tipo = String(p.tipo).toUpperCase() as "TITULAR" | "DEPENDENTE";
-  if (p.tipo !== "DEPENDENTE") delete p.titularId;
+  if (p.tipo !== "TITULAR") delete p.titularId;
 
   return p;
 }
@@ -187,7 +189,7 @@ export default function BeneficiaryForm({
     setFormData((prev) => {
       const next = { ...prev, [name]: value as any };
       if (name === "tipo") {
-        // ao virar TITULAR, limpamos vínculo
+        // ao virar TITULAR, limpamos vínculo; caso contrário mantemos/solicitamos
         next.titularId = value === "TITULAR" ? undefined : prev.titularId ?? undefined;
       }
       // se marcar INATIVO e não há dataSaida, sugerimos preencher
@@ -205,7 +207,7 @@ export default function BeneficiaryForm({
       apiFetch(`/clients/${clienteId}/beneficiaries`, { query: { tipo: "TITULAR" } }).then(
         (res: any) => res.items as TitularOption[]
       ),
-    enabled: formData.tipo === "DEPENDENTE" && !!clienteId,
+    enabled: formData.tipo !== "TITULAR" && !!clienteId,
   });
 
   const mutation = useMutation({
@@ -232,8 +234,8 @@ export default function BeneficiaryForm({
       toast.error("Preencha os campos obrigatórios: Nome, Tipo e Data de Entrada.");
       return;
     }
-    if (formData.tipo === "DEPENDENTE" && !formData.titularId) {
-      toast.error("Para um Dependente, é obrigatório selecionar o Titular.");
+    if (formData.tipo !== "TITULAR" && !formData.titularId) {
+      toast.error("Para FILHO/CONJUGE, é obrigatório selecionar o Titular.");
       return;
     }
 
@@ -265,12 +267,13 @@ export default function BeneficiaryForm({
                 <SelectTrigger id="tipo"><SelectValue placeholder="Selecione..." /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="TITULAR">Titular</SelectItem>
-                  <SelectItem value="DEPENDENTE">Dependente</SelectItem>
+                  <SelectItem value="FILHO">Filho</SelectItem>
+                  <SelectItem value="CONJUGE">Cônjuge</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            {formData.tipo === "DEPENDENTE" && (
+            {formData.tipo !== "TITULAR" && (
               <div className="grid gap-2">
                 <Label htmlFor="titularId">Vincular ao Titular *</Label>
                 <Select
