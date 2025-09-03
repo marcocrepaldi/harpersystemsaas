@@ -16,31 +16,40 @@ import { toast } from 'sonner';
 import { Download, RefreshCw, Trash2, Copy, Search } from 'lucide-react';
 import { useImportErrors } from './useImportErrors';
 
+/* ======================= Tipos ======================= */
+export type ImportSummary = {
+  totalLinhas: number;
+  processados: number;
+  criados: number;
+  atualizados: number;
+  rejeitados: number;
+  porMotivo?: { motivo: string; count: number }[];
+  porTipo?: {
+    titulares: { criados: number; atualizados: number };
+    dependentes: { criados: number; atualizados: number };
+  };
+};
+
 export type LocalError = {
   line?: number;
   message?: string;
   data?: any;
-  createdAt?: string;
+  createdAt?: string; // opcional
 };
 
-// erros vindos do servidor no retorno do upload
-export type ServerError = {
-  linha: number;
-  motivo: string;
-  dados: any;
-  createdAt?: string;
-};
+type Tab = 'latest' | 'history';
 
 type Props = {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   clientId: string;
-  /** Erros retornados imediatamente pelo upload */
-  initialErrors?: Array<LocalError | ServerError>;
+  /** Erros retornados IMEDIATAMENTE pelo upload (lado cliente) */
+  initialErrors?: LocalError[];
+  /** Resumo opcional do último upload */
+  summary?: ImportSummary | null; // <-- ADICIONADO
 };
 
-type Tab = 'latest' | 'history';
-
+/* ======================= Utils ======================= */
 function fmtDate(d?: string | Date | null) {
   if (!d) return '—';
   const dt = typeof d === 'string' ? new Date(d) : d;
@@ -51,7 +60,9 @@ function fmtDate(d?: string | Date | null) {
 function downloadBlob(filename: string, blob: Blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = filename; a.click();
+  a.href = url;
+  a.download = filename;
+  a.click();
   URL.revokeObjectURL(url);
 }
 
@@ -69,12 +80,19 @@ function jsonToCsv(rows: any[]): string {
   return `${head}\n${body}`;
 }
 
-export function ImportErrorsModal({ open, onOpenChange, clientId, initialErrors = [] }: Props) {
+/* ======================= Componente ======================= */
+export function ImportErrorsModal({
+  open,
+  onOpenChange,
+  clientId,
+  initialErrors = [],
+  summary = null,
+}: Props) {
   const [tab, setTab] = useState<Tab>('latest');
   const [queryText, setQueryText] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // Busca histórico no servidor
+  // Hook que busca no servidor (histórico)
   const {
     isLoading,
     latest,
@@ -84,26 +102,19 @@ export function ImportErrorsModal({ open, onOpenChange, clientId, initialErrors 
     exportCsvPayload,
   } = useImportErrors({ clientId, query: queryText, tab });
 
-  // === NORMALIZA ambos formatos (local/cliente e servidor) ===
+  // Mapeia os erros locais (imediatos do upload) para o mesmo shape do servidor
   const mappedInitial = useMemo(() => {
-    return (initialErrors || []).map((e, idx) => {
-      const any = e as any;
-      const linha = 'linha' in any ? any.linha : ('line' in any ? any.line : null);
-      const motivo = 'motivo' in any ? any.motivo : (any.message ?? 'Erro de validação');
-      const dados  = 'dados'  in any ? any.dados  : (any.data ?? {});
-      const createdAt = any.createdAt ?? new Date().toISOString();
-      return {
-        id: `local-${idx}`,
-        clientId,
-        linha: typeof linha === 'number' ? linha : (linha == null ? null : Number(linha) || null),
-        motivo: motivo || 'Erro de validação',
-        dados,
-        createdAt,
-      };
-    });
+    return (initialErrors || []).map((e, idx) => ({
+      id: `local-${idx}`,
+      clientId,
+      linha: e.line ?? null,
+      motivo: e.message ?? 'Erro de validação',
+      dados: e.data ?? {},
+      createdAt: e.createdAt ?? new Date().toISOString(),
+    }));
   }, [initialErrors, clientId]);
 
-  // Lista ativa
+  // Lista ativa por aba:
   const list = useMemo(() => {
     if (tab === 'latest') {
       if (mappedInitial.length > 0) return mappedInitial;
@@ -112,7 +123,7 @@ export function ImportErrorsModal({ open, onOpenChange, clientId, initialErrors 
     return history ?? [];
   }, [tab, mappedInitial, latest, history]);
 
-  // Seleção segura ao abrir/mudar lista
+  // Seleção segura
   useEffect(() => {
     if (!open) return;
     if (list.length > 0) {
@@ -193,6 +204,29 @@ export function ImportErrorsModal({ open, onOpenChange, clientId, initialErrors 
             Visualize e exporte as linhas que falharam durante a importação de beneficiários.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Resumo (quando disponível) */}
+        {summary && (
+          <div className="px-6 pb-3 text-xs text-muted-foreground">
+            <div className="flex flex-wrap gap-x-4 gap-y-1">
+              <span>Total linhas: <b>{summary.totalLinhas}</b></span>
+              <span>Processados: <b>{summary.processados}</b></span>
+              <span>Criados: <b>{summary.criados}</b></span>
+              <span>Atualizados: <b>{summary.atualizados}</b></span>
+              <span>Rejeitados: <b>{summary.rejeitados}</b></span>
+            </div>
+            {summary.porMotivo && summary.porMotivo.length > 0 && (
+              <div className="mt-2">
+                Top erros:&nbsp;
+                {summary.porMotivo.slice(0, 3).map((e, i) => (
+                  <span key={i} className="inline-block mr-2">
+                    {e.motivo}: <b>{e.count}</b>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Toolbar */}
         <div className="ml-auto flex items-center gap-2 px-6 pb-4">

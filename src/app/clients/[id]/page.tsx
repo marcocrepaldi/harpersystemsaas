@@ -53,7 +53,6 @@ type ClientFromApi = {
   status: ClientStatusDto;
   notes?: string | null;
 
-  // legados já aninhados pelo backend (nós montamos isso no service)
   address?: AddressDto;
   primaryContact?: PrimaryContactDto;
 
@@ -77,9 +76,9 @@ type ClientFromApi = {
   pjRepPhone?: string | null;
 
   // normalizações
-  serviceSlugs?: string[]; // quando includeRels inclui 'services'
-  tagSlugs?: string[];     // quando includeRels inclui 'tags'
-  tags?: string[] | null;  // legado (array simples)
+  serviceSlugs?: string[];
+  tagSlugs?: string[];
+  tags?: string[] | null;
 
   deletedAt?: string | null;
 };
@@ -107,7 +106,7 @@ function toInitialValues(api: ClientFromApi): Partial<ClientPayload> {
           maritalStatus: undef(api.pfMaritalStatus),
           profession: undef(api.pfProfession),
           isPEP: typeof api.pfIsPEP === 'boolean' ? api.pfIsPEP : undefined,
-          birthDate: undef(api.birthDate), // se o seu ClientForm aceita birthDate em string ISO
+          birthDate: undef(api.birthDate),
         }
       : undefined,
 
@@ -132,7 +131,7 @@ function toInitialValues(api: ClientFromApi): Partial<ClientPayload> {
         }
       : undefined,
 
-    // aninhados (legado mapeado no backend)
+    // aninhados
     address: {
       zip: undef(api.address?.zip),
       street: undef(api.address?.street),
@@ -156,7 +155,7 @@ function toInitialValues(api: ClientFromApi): Partial<ClientPayload> {
 
     // relações normalizadas
     serviceSlugs: api.serviceSlugs ?? undefined,
-    tags: api.tagSlugs ?? api.tags ?? undefined, // preferir tags normalizadas; cair para legado se necessário
+    tags: api.tagSlugs ?? api.tags ?? undefined,
   };
 }
 
@@ -194,9 +193,8 @@ function ClientEditPageInner(): React.ReactElement {
       if (!id) return;
       setLoading(true);
       try {
-        // ✅ pede payload completo para pré-preencher o form de edição
         const data = await apiFetch<ClientFromApi>(`/clients/${encodeURIComponent(id)}`, {
-          query: { includeRels: 'true' }, // IMPORTANTE: enviar string, não boolean
+          query: { includeRels: 'true' },
         });
         if (mounted) setClient(data);
       } catch (e: unknown) {
@@ -263,6 +261,7 @@ function ClientEditPageInner(): React.ReactElement {
               </BreadcrumbList>
             </Breadcrumb>
           </div>
+
           <div className="ml-auto flex gap-2 px-4">
             <Button variant="outline" onClick={() => router.push(`/clients${qs}`)}>
               Voltar

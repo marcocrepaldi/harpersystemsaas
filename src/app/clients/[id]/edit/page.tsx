@@ -8,7 +8,12 @@ import { toast } from 'sonner';
 import { AppSidebar } from '@/components/app-sidebar';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import {
-  Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { Separator } from '@/components/ui/separator';
 import { Card, CardContent } from '@/components/ui/card';
@@ -19,7 +24,7 @@ import ClientForm, { type ClientPayload } from '../../_components/client-form';
 import { apiFetch } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
 
-// ✅ TIPO CORRIGIDO: Agora inclui todos os campos do backend
+/* ----------------------------- Tipos do backend ----------------------------- */
 type ClientFromApi = {
   id: string;
   name: string;
@@ -33,7 +38,7 @@ type ClientFromApi = {
   status?: 'lead' | 'prospect' | 'active' | 'inactive';
   serviceSlugs?: string[];
 
-  // Campos de Endereço (legado)
+  // Endereço (legado)
   addressZip?: string | null;
   addressStreet?: string | null;
   addressNumber?: string | null;
@@ -43,113 +48,147 @@ type ClientFromApi = {
   addressState?: string | null;
   addressCountry?: string | null;
 
-  // Campos de Contato Principal (legado)
+  // Contato principal (legado)
   primaryContactName?: string | null;
   primaryContactRole?: string | null;
   primaryContactEmail?: string | null;
   primaryContactPhone?: string | null;
   primaryContactNotes?: string | null;
 
-  // Campos de PF
+  // PF
   pfRg?: string | null;
-  birthDate?: string | null; // O Prisma retorna como string ISO
+  birthDate?: string | null; // ISO
   pfMaritalStatus?: string | null;
   pfProfession?: string | null;
   pfIsPEP?: boolean | null;
 
-  // Campos de PJ
+  // PJ
   pjCorporateName?: string | null;
   pjTradeName?: string | null;
   pjCnpj?: string | null;
   pjStateRegistration?: string | null;
   pjMunicipalRegistration?: string | null;
   pjCNAE?: string | null;
-  pjFoundationDate?: string | null; // O Prisma retorna como string ISO
+  pjFoundationDate?: string | null; // ISO
   pjRepName?: string | null;
   pjRepCpf?: string | null;
   pjRepEmail?: string | null;
   pjRepPhone?: string | null;
 };
 
-// ✅ FUNÇÃO CORRIGIDA: Agora mapeia todos os campos para o formulário
+function undef<T>(v: T | null | undefined): T | undefined {
+  return v == null ? undefined : v;
+}
+
+function isoToDateInput(v?: string | null): string | undefined {
+  return v ? v.substring(0, 10) : undefined;
+}
+
+/** Converte payload da API -> valores iniciais do ClientForm sem forçar strings vazias */
 function toInitialValues(api: ClientFromApi): Partial<ClientPayload> {
   const digits = (api.document || '').replace(/\D+/g, '');
   const isPJ = api.personType === 'PJ' || (!api.personType && digits.length > 11);
 
-  // Formata as datas para o input type="date" (yyyy-mm-dd)
-  const birthDate = api.birthDate ? api.birthDate.substring(0, 10) : '';
-  const foundationDate = api.pjFoundationDate ? api.pjFoundationDate.substring(0, 10) : '';
-
   return {
     personType: api.personType ?? (isPJ ? 'PJ' : 'PF'),
     status: api.status ?? 'active',
-    name: api.name ?? '',
-    document: api.document ?? '',
-    email: api.email ?? '',
-    phone: api.phone ?? '',
-    notes: api.notes ?? '',
 
-    // Mapeamento dos campos de PF
-    pf: {
-      rg: api.pfRg ?? '',
-      birthDate: birthDate,
-      maritalStatus: api.pfMaritalStatus ?? '',
-      profession: api.pfProfession ?? '',
-      isPEP: api.pfIsPEP ?? false,
-    },
+    name: api.name,
+    document: undef(api.document),
+    email: undef(api.email),
+    phone: undef(api.phone),
+    notes: undef(api.notes),
 
-    // Mapeamento dos campos de PJ
-    pj: {
-      corporateName: api.pjCorporateName ?? '',
-      tradeName: api.pjTradeName ?? '',
-      cnpj: api.pjCnpj ?? '',
-      stateRegistration: api.pjStateRegistration ?? '',
-      municipalRegistration: api.pjMunicipalRegistration ?? '',
-      cnae: api.pjCNAE ?? '',
-      foundationDate: foundationDate,
-      legalRepresentative: {
-        name: api.pjRepName ?? '',
-        cpf: api.pjRepCpf ?? '',
-        email: api.pjRepEmail ?? '',
-        phone: api.pjRepPhone ?? '',
-      },
-    },
+    // PF
+    pf:
+      api.personType === 'PF' ||
+      api.pfRg ||
+      api.pfMaritalStatus ||
+      api.pfProfession ||
+      typeof api.pfIsPEP === 'boolean' ||
+      api.birthDate
+        ? {
+            rg: undef(api.pfRg),
+            birthDate: isoToDateInput(api.birthDate),
+            maritalStatus: undef(api.pfMaritalStatus),
+            profession: undef(api.pfProfession),
+            isPEP: typeof api.pfIsPEP === 'boolean' ? api.pfIsPEP : undefined,
+          }
+        : undefined,
 
-    // Mapeamento do Contato Principal
-    primaryContact: {
-      name: api.primaryContactName ?? '',
-      role: api.primaryContactRole ?? '',
-      email: api.primaryContactEmail ?? '',
-      phone: api.primaryContactPhone ?? '',
-      notes: api.primaryContactNotes ?? '',
-    },
+    // PJ
+    pj:
+      api.personType === 'PJ' ||
+      api.pjCorporateName ||
+      api.pjTradeName ||
+      api.pjCnpj ||
+      api.pjCNAE ||
+      api.pjFoundationDate ||
+      api.pjRepName ||
+      api.pjRepCpf ||
+      api.pjRepEmail ||
+      api.pjRepPhone
+        ? {
+            corporateName: undef(api.pjCorporateName),
+            tradeName: undef(api.pjTradeName),
+            cnpj: undef(api.pjCnpj),
+            stateRegistration: undef(api.pjStateRegistration),
+            municipalRegistration: undef(api.pjMunicipalRegistration),
+            cnae: undef(api.pjCNAE),
+            foundationDate: isoToDateInput(api.pjFoundationDate),
+            legalRepresentative:
+              api.pjRepName || api.pjRepCpf || api.pjRepEmail || api.pjRepPhone
+                ? {
+                    name: undef(api.pjRepName),
+                    cpf: undef(api.pjRepCpf),
+                    email: undef(api.pjRepEmail),
+                    phone: undef(api.pjRepPhone),
+                  }
+                : undefined,
+          }
+        : undefined,
 
-    // Mapeamento do Endereço
+    // Contato principal
+    primaryContact:
+      api.primaryContactName ||
+      api.primaryContactEmail ||
+      api.primaryContactPhone ||
+      api.primaryContactRole ||
+      api.primaryContactNotes
+        ? {
+            name: undef(api.primaryContactName),
+            role: undef(api.primaryContactRole),
+            email: undef(api.primaryContactEmail),
+            phone: undef(api.primaryContactPhone),
+            notes: undef(api.primaryContactNotes),
+          }
+        : undefined,
+
+    // Endereço
     address: {
-      zip: api.addressZip ?? '',
-      street: api.addressStreet ?? '',
-      number: api.addressNumber ?? '',
-      complement: api.addressComplement ?? '',
-      district: api.addressDistrict ?? '',
-      city: api.addressCity ?? '',
-      state: api.addressState ?? '',
-      country: api.addressCountry ?? 'BR',
+      zip: undef(api.addressZip),
+      street: undef(api.addressStreet),
+      number: undef(api.addressNumber),
+      complement: undef(api.addressComplement),
+      district: undef(api.addressDistrict),
+      city: undef(api.addressCity),
+      state: undef(api.addressState),
+      country: undef(api.addressCountry) ?? 'BR',
     },
 
-    serviceSlugs: api.serviceSlugs ?? [],
+    serviceSlugs: api.serviceSlugs ?? undefined,
   };
 }
-
 
 export default function ClientEditPage(): React.ReactElement {
   return (
     <Suspense
-      fallback={(
+      fallback={
         <div className="p-4">
           <Skeleton className="mb-3 h-6 w-48" />
           <Skeleton className="h-72 w-full" />
         </div>
-      )}
+      }
     >
       <ClientEditPageInner />
     </Suspense>
@@ -175,7 +214,6 @@ function ClientEditPageInner(): React.ReactElement {
       if (!id) return;
       setLoading(true);
       try {
-        // includeRels default=true no backend, mas aqui forçamos para garantir serviços/tags
         const data = await apiFetch<ClientFromApi>(`/clients/${encodeURIComponent(id)}`, {
           query: { includeRels: 'true' },
         });
@@ -195,7 +233,9 @@ function ClientEditPageInner(): React.ReactElement {
 
   async function handleDelete(): Promise<void> {
     if (!id) return;
-    const ok = typeof window !== 'undefined' && window.confirm('Excluir este cliente? Essa ação não pode ser desfeita.');
+    const ok =
+      typeof window !== 'undefined' &&
+      window.confirm('Excluir este cliente? Essa ação não pode ser desfeita.');
     if (!ok) return;
     setSaving(true);
     try {
@@ -244,16 +284,25 @@ function ClientEditPageInner(): React.ReactElement {
               </BreadcrumbList>
             </Breadcrumb>
           </div>
+
           <div className="ml-auto flex gap-2 px-4">
             <Button variant="outline" onClick={() => router.push(`/clients${qs}`)}>
               Voltar
             </Button>
             <Button
               variant={client?.deletedAt ? 'default' : 'destructive'}
-              onClick={() => (client?.deletedAt ? void handleRestore() : void handleDelete())}
+              onClick={() =>
+                client?.deletedAt ? void handleRestore() : void handleDelete()
+              }
               disabled={saving || loading}
             >
-              {saving ? (client?.deletedAt ? 'Restaurando...' : 'Excluindo...') : client?.deletedAt ? 'Restaurar' : 'Excluir'}
+              {saving
+                ? client?.deletedAt
+                  ? 'Restaurando...'
+                  : 'Excluindo...'
+                : client?.deletedAt
+                ? 'Restaurar'
+                : 'Excluir'}
             </Button>
           </div>
         </header>
@@ -271,12 +320,16 @@ function ClientEditPageInner(): React.ReactElement {
                   <ClientForm
                     mode="edit"
                     id={id}
-                    title={client.deletedAt ? 'Editar Cliente (Excluído)' : 'Editar Cliente'}
+                    title={
+                      client.deletedAt ? 'Editar Cliente (Excluído)' : 'Editar Cliente'
+                    }
                     initialValues={toInitialValues(client)}
                     onSuccessRedirect={`/clients${qs}`}
                   />
                 ) : (
-                  <div className="text-sm text-muted-foreground">Cliente não encontrado.</div>
+                  <div className="text-sm text-muted-foreground">
+                    Cliente não encontrado.
+                  </div>
                 )}
               </CardContent>
             </Card>

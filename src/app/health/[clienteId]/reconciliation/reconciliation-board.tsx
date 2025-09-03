@@ -8,71 +8,30 @@ import { toast } from 'sonner';
 
 // UI
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from '@/components/ui/select';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
-import { Label } from '@/components/ui/label';
-import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
-import { Calendar } from '@/components/ui/calendar';
-import { CalendarIcon, CheckCheckIcon } from 'lucide-react';
 
-// Charts
-import {
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Tooltip as RechartsTooltip,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-} from 'recharts';
-import { format } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
+// Components (novos)
+import { ReconTable, type ColumnDef, type RowVariant } from '@/components/reconciliation/recon-table';
+import { StatCard } from '@/components/reconciliation/stat-card';
+import { DistributionPieCard, DivergencesBarCard } from '@/components/reconciliation/recon-charts';
+import { ReconFilters } from '@/components/reconciliation/recon-filters';
+import { ReconActions } from '@/components/reconciliation/recon-actions';
 
-// ---------- tipos ----------
+// ===================== tipos =====================
 type ReconResp = {
   ok: boolean;
   clientId: string;
-  mesReferencia: string;
+  mesReferencia: string; // YYYY-MM
   totals: {
     faturaCount: number;
-    faturaSum: string;
+    faturaSum: string; // BRL
     ativosCount: number;
     onlyInInvoice: number;
     onlyInRegistry: number;
@@ -109,6 +68,13 @@ type ReconResp = {
       status: 'OK' | 'DIVERGENTE' | 'DUPLICADO' | 'SOFATURA';
     }>;
   };
+  // opcional: quando existir backend de fechamento
+  closure?: {
+    status: 'OPEN' | 'CLOSED';
+    totalFatura?: string; // BRL
+    closedAt?: string; // ISO
+    notes?: string | null;
+  };
 };
 
 type OptionsResp = {
@@ -117,27 +83,21 @@ type OptionsResp = {
   centros: string[];
 };
 
-type RowVariant = 'ok' | 'error' | undefined;
-const cx = (...c: Array<string | false | null | undefined>) => c.filter(Boolean).join(' ');
 const ALL_TOKEN = '__ALL__';
 
-// ---------- utils de moeda ----------
+// ===================== utils de moeda =====================
 const parseCurrency = (v: string | number | null | undefined): number => {
   if (v == null) return 0;
   if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
   const raw = String(v).replace(/[^\d.,\-]/g, '');
   if (!raw) return 0;
-  return raw.includes(',') ? Number(raw.replace(/\./g, '').replace(',', '.')) || 0 : Number(raw) || 0;
+  return raw.includes(',')
+    ? Number(raw.replace(/\./g, '').replace(',', '.')) || 0
+    : Number(raw) || 0;
 };
 const toBRL = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-// ---------- MonthPicker helpers ----------
-function ymToDate(ym?: string): Date | undefined {
-  if (!ym) return undefined;
-  const [y, m] = ym.split('-').map(Number);
-  if (!y || !m) return undefined;
-  return new Date(y, m - 1, 1, 0, 0, 0, 0);
-}
+// ===================== helpers de mês =====================
 function dateToYm(d?: Date): string {
   if (!d) return '';
   const y = d.getFullYear();
@@ -145,175 +105,7 @@ function dateToYm(d?: Date): string {
   return `${y}-${m}`;
 }
 
-// ---------- MonthPicker ----------
-function MonthPicker({
-  value,
-  onChange,
-  label = 'Mês de referência',
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  label?: string;
-}) {
-  const [open, setOpen] = React.useState(false);
-  const selected = ymToDate(value) ?? new Date();
-  const displayDate = ymToDate(value) ?? new Date();
-
-  return (
-    <div className="grid gap-1">
-      <Label className="text-xs">{label}</Label>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button variant="outline" className="w-[220px] justify-start text-left font-normal">
-            <CalendarIcon className="mr-2 h-4 w-4 opacity-70" />
-            {format(displayDate, 'MMMM yyyy', { locale: ptBR })}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="p-2" align="start">
-          <Calendar
-            mode="single"
-            selected={selected}
-            onSelect={(d) => {
-              if (d) {
-                const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                onChange(ym);
-                setOpen(false);
-              }
-            }}
-            month={selected}
-            onMonthChange={(m) => {
-              const ym = `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}`;
-              onChange(ym);
-            }}
-            captionLayout="dropdown"
-            fromDate={new Date(displayDate.getFullYear() - 3, 0, 1)}
-            toDate={new Date(displayDate.getFullYear() + 1, 11, 1)}
-            locale={ptBR}
-          />
-        </PopoverContent>
-      </Popover>
-    </div>
-  );
-}
-
-// ✅ Tipo genérico para as linhas das tabelas com ID
-type ReconRowWithId = { id: string } & Record<string, any>;
-
-// ---------- Column-aware table (corrige ordem das colunas) ----------
-type ColumnDef<T extends ReconRowWithId> = {
-  header: string;
-  key: keyof T & string;
-  align?: 'left' | 'right' | 'center';
-  emphasize?: boolean;
-};
-
-function ReconTable<T extends ReconRowWithId>({
-  columns,
-  data,
-  getRowVariant,
-  selectedIds,
-  onSelectChange,
-}: {
-  columns: ColumnDef<T>[];
-  data: T[];
-  getRowVariant?: (row: T) => RowVariant;
-  selectedIds: string[];
-  onSelectChange: (id: string, isChecked: boolean) => void;
-}) {
-  const allIds = data.map((d) => d.id);
-  const allChecked = allIds.length > 0 && allIds.every((id) => selectedIds.includes(id));
-
-  return (
-    <div className="rounded-md border overflow-hidden">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead className="w-12">
-              {data.length > 0 && (
-                <Checkbox
-                  checked={allChecked}
-                  onCheckedChange={(checked) => {
-                    if (checked) allIds.forEach((id) => onSelectChange(id, true));
-                    else allIds.forEach((id) => onSelectChange(id, false));
-                  }}
-                  aria-label="Selecionar todos"
-                />
-              )}
-            </TableHead>
-            {columns.map((c) => (
-              <TableHead key={c.header} className={c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : ''}>
-                {c.header}
-              </TableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {data.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={columns.length + 1} className="text-center text-sm text-muted-foreground">
-                Nenhum registro para exibir.
-              </TableCell>
-            </TableRow>
-          ) : (
-            data.map((r) => {
-              const variant = getRowVariant?.(r);
-              const rowClass =
-                variant === 'error'
-                  ? 'bg-red-50/70 hover:bg-red-50'
-                  : variant === 'ok'
-                  ? 'bg-emerald-50/70 hover:bg-emerald-50'
-                  : undefined;
-
-              return (
-                <TableRow key={r.id} className={rowClass}>
-                  <TableCell>
-                    <Checkbox
-                      checked={selectedIds.includes(r.id)}
-                      onCheckedChange={(checked) => onSelectChange(r.id, !!checked)}
-                      aria-label="Selecionar linha"
-                    />
-                  </TableCell>
-                  {columns.map((col) => {
-                    let cell: any = r[col.key];
-                    if (Array.isArray(cell)) cell = cell.join(', ');
-                    const alignCls = col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : '';
-                    const emphasizeCls =
-                      col.emphasize && variant === 'error'
-                        ? 'font-semibold text-red-700'
-                        : col.emphasize && variant === 'ok'
-                        ? 'font-semibold text-emerald-700'
-                        : '';
-                    return (
-                      <TableCell key={`${r.id}-${col.key}`} className={cx(alignCls, emphasizeCls)}>
-                        {String(cell ?? '—')}
-                      </TableCell>
-                    );
-                  })}
-                </TableRow>
-              );
-            })
-          )}
-        </TableBody>
-      </Table>
-    </div>
-  );
-}
-
-function StatCard({ title, value, hint }: { title: string; value: string | number; hint?: string }) {
-  return (
-    <Card className="shadow-sm">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm text-muted-foreground">{title}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-semibold">{value}</div>
-        {hint ? <div className="text-xs text-muted-foreground mt-1">{hint}</div> : null}
-      </CardContent>
-    </Card>
-  );
-}
-
-// ---------- página ----------
+// ===================== página =====================
 export default function ReconciliationBoard() {
   const { clienteId } = useParams<{ clienteId: string }>();
   const sp = useSearchParams();
@@ -358,9 +150,17 @@ export default function ReconciliationBoard() {
 
   const [selectedInvoiceIds, setSelectedInvoiceIds] = React.useState<string[]>([]);
 
+  // 🔎 BUSCA LOCAL (debounced)
+  const [search, setSearch] = React.useState('');
+  const [debouncedSearch, setDebouncedSearch] = React.useState('');
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 250);
+    return () => clearTimeout(t);
+  }, [search]);
+
   React.useEffect(() => {
     setSelectedInvoiceIds([]);
-  }, [activeTab, mes, tipo, plano, centro]);
+  }, [activeTab, mes, tipo, plano, centro, debouncedSearch]);
 
   const { data: options } = useQuery<OptionsResp>({
     queryKey: ['recon.options', clienteId],
@@ -392,14 +192,18 @@ export default function ReconciliationBoard() {
     [data],
   );
 
-  // Derivados: Convergentes (OK)
-  const okRows = React.useMemo(() => tabs.allInvoice.filter((r) => r.status === 'OK'), [tabs.allInvoice]);
-
-  // Somatórios financeiros (robustos)
-  const allInvoiceSum = React.useMemo(
-    () => toBRL(tabs.allInvoice.reduce((acc, r) => acc + parseCurrency(r.valorCobrado), 0)),
+  // Derivados e somatórios
+  const okRows = React.useMemo(
+    () => tabs.allInvoice.filter((r) => r.status === 'OK'),
     [tabs.allInvoice],
   );
+
+  const allInvoiceTotal = React.useMemo(
+    () => tabs.allInvoice.reduce((acc, r) => acc + parseCurrency(r.valorCobrado), 0),
+    [tabs.allInvoice],
+  );
+
+  const allInvoiceSum = React.useMemo(() => toBRL(allInvoiceTotal), [allInvoiceTotal]);
   const onlyInInvoiceSum = React.useMemo(
     () => toBRL(tabs.onlyInInvoice.reduce((acc, r) => acc + parseCurrency(r.valorCobrado), 0)),
     [tabs.onlyInInvoice],
@@ -409,6 +213,7 @@ export default function ReconciliationBoard() {
     [okRows],
   );
 
+  // Mutations
   const deleteMutation = useMutation({
     mutationFn: async () => {
       const mesYYYYMM = (data?.mesReferencia || '').slice(0, 7);
@@ -421,7 +226,9 @@ export default function ReconciliationBoard() {
       refetch();
     },
     onError: (e: unknown) => {
-      toast.error('Falha ao excluir fatura.', { description: e instanceof Error ? e.message : String(e) });
+      toast.error('Falha ao excluir fatura.', {
+        description: e instanceof Error ? e.message : String(e),
+      });
     },
   });
 
@@ -430,13 +237,11 @@ export default function ReconciliationBoard() {
       return apiFetch<any>(`/clients/${clienteId}/invoices/reconcile`, {
         method: 'PATCH',
         body: JSON.stringify({ invoiceIds }),
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
       });
     },
     onSuccess: (resp) => {
-      toast.success(`${resp.count} faturas conciliadas.`, {
+      toast.success(`${resp?.count ?? resp?.reconciledCount ?? 0} faturas conciliadas.`, {
         description: 'Os registros foram atualizados no sistema.',
       });
       setSelectedInvoiceIds([]);
@@ -449,17 +254,33 @@ export default function ReconciliationBoard() {
     },
   });
 
-  const buildExportUrl = (tab: string) => {
-    const params = new URLSearchParams();
-    params.set('mes', mes);
-    params.set('format', exportFormat);
-    params.set('tab', tab);
-    if (tipo && tipo !== 'ALL') params.set('tipo', tipo);
-    if (plano) params.set('plano', plano);
-    if (centro) params.set('centro', centro);
-    return `/clients/${clienteId}/reconciliation/export?${params.toString()}`;
-  };
+  // 🔒 Fechamento manual do mês (POST /clients/:id/reconciliation/close)
+  // Alinha com CloseReconciliationDTO { mes, valorFaturaDeclarado, observacaoFechamento }
+  const closeMutation = useMutation({
+    mutationFn: async ({ total, notes }: { total: number; notes?: string }) => {
+      const body = {
+        mes,
+        valorFaturaDeclarado: total,
+        observacaoFechamento: notes?.trim() || undefined,
+      };
+      return apiFetch<any>(`/clients/${clienteId}/reconciliation/close`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    },
+    onSuccess: () => {
+      toast.success('Fechamento registrado com sucesso.');
+      refetch();
+    },
+    onError: (e: unknown) => {
+      toast.error('Falha ao fechar conciliação.', {
+        description: e instanceof Error ? e.message : String(e),
+      });
+    },
+  });
 
+  // Charts
   const pieData = React.useMemo(() => {
     if (!data) return [];
     const { mismatched, duplicates, onlyInInvoice, onlyInRegistry, ativosCount } = data.totals;
@@ -493,7 +314,8 @@ export default function ReconciliationBoard() {
     reg: '#8B5CF6',
   };
 
-  const safeList = (arr?: (string | null)[]) => (arr || []).filter((x): x is string => !!x && x.trim().length > 0);
+  const safeList = (arr?: (string | null)[]) =>
+    (arr || []).filter((x): x is string => !!x && x.trim().length > 0);
 
   const handleSelectChange = React.useCallback(
     (id: string, isChecked: boolean) => {
@@ -502,8 +324,91 @@ export default function ReconciliationBoard() {
         return prev.filter((_id) => _id !== id);
       });
     },
-    [setSelectedInvoiceIds],
+    [],
   );
+
+  // Filtro local por busca
+  const filterPredicate = React.useCallback(
+    (row: any) => {
+      if (!debouncedSearch) return true;
+      const q = debouncedSearch.toLowerCase();
+
+      const nome = (row.nome ?? '').toString().toLowerCase();
+      const cpfDigits = (row.cpf ?? '').toString().replace(/\D/g, '');
+      const qDigits = q.replace(/\D/g, '');
+
+      const valorCobradoNum = parseCurrency(row.valorCobrado);
+      const valorMensalidadeNum = parseCurrency(row.valorMensalidade);
+      const diferencaNum = parseCurrency(row.diferenca);
+
+      if (nome.includes(q)) return true;
+      if (qDigits && cpfDigits.includes(qDigits)) return true;
+
+      const tryNum = Number(q.replace('.', '').replace(',', '.'));
+      if (!Number.isNaN(tryNum)) {
+        const tol = 0.02; // ~2 centavos
+        if (Math.abs(valorCobradoNum - tryNum) <= tol) return true;
+        if (Math.abs(valorMensalidadeNum - tryNum) <= tol) return true;
+        if (Math.abs(diferencaNum - tryNum) <= tol) return true;
+      }
+
+      return false;
+    },
+    [debouncedSearch],
+  );
+
+  const filteredTabs = React.useMemo(() => {
+    if (!debouncedSearch) return tabs;
+    return {
+      mismatched: tabs.mismatched.filter(filterPredicate),
+      onlyInInvoice: tabs.onlyInInvoice.filter(filterPredicate),
+      onlyInRegistry: tabs.onlyInRegistry.filter(filterPredicate),
+      duplicates: tabs.duplicates.filter(filterPredicate),
+      allInvoice: tabs.allInvoice.filter(filterPredicate),
+    };
+  }, [tabs, debouncedSearch, filterPredicate]);
+
+  const filteredOkRows = React.useMemo(
+    () => filteredTabs.allInvoice.filter((r) => r.status === 'OK'),
+    [filteredTabs.allInvoice],
+  );
+
+  // Column defs
+  const colsMismatch: ColumnDef<any>[] = [
+    { header: 'Beneficiário', key: 'nome' },
+    { header: 'CPF', key: 'cpf' },
+    { header: 'Cobrado', key: 'valorCobrado', align: 'right', emphasize: true },
+    { header: 'Mensalidade', key: 'valorMensalidade', align: 'right' },
+    { header: 'Diferença', key: 'diferenca', align: 'right', emphasize: true },
+  ];
+  const colsOnlyInv: ColumnDef<any>[] = [
+    { header: 'Beneficiário', key: 'nome' },
+    { header: 'CPF', key: 'cpf' },
+    { header: 'Valor Cobrado', key: 'valorCobrado', align: 'right' },
+  ];
+  const colsOnlyReg: ColumnDef<any>[] = [
+    { header: 'Beneficiário', key: 'nome' },
+    { header: 'CPF', key: 'cpf' },
+    { header: 'Mensalidade', key: 'valorMensalidade', align: 'right' },
+  ];
+  const colsDup: ColumnDef<any>[] = [
+    { header: 'Beneficiário', key: 'nome' },
+    { header: 'CPF', key: 'cpf' },
+    { header: 'Ocorrências', key: 'ocorrencias', align: 'right' },
+    { header: 'Soma cobrada', key: 'somaCobrada', align: 'right', emphasize: true },
+    { header: 'Valores', key: 'valores' },
+  ];
+  const colsAll: ColumnDef<any>[] = [
+    { header: 'Beneficiário', key: 'nome' },
+    { header: 'CPF', key: 'cpf' },
+    { header: 'Cobrado', key: 'valorCobrado', align: 'right' },
+    { header: 'Mensalidade', key: 'valorMensalidade', align: 'right' },
+    { header: 'Diferença', key: 'diferenca', align: 'right', emphasize: true },
+    { header: 'Status', key: 'status' },
+  ];
+
+  const isClosed = data?.closure?.status === 'CLOSED';
+  const suggestedCloseBRL = allInvoiceSum;
 
   return (
     <div className="bg-muted/50 rounded-xl p-6 space-y-6">
@@ -569,91 +474,18 @@ export default function ReconciliationBoard() {
             </TooltipProvider>
           </div>
 
-          <div className="grid w-full gap-3 md:w-auto md:grid-cols-5 items-end">
-            <MonthPicker value={mes} onChange={handleMesChange} />
-
-            <div className="grid gap-1">
-              <Label className="text-xs">Tipo</Label>
-              <Select value={tipo} onValueChange={(v) => setTipo(v as any)}>
-                <SelectTrigger className="w-[160px]">
-                  <SelectValue placeholder="Tipo" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">Todos</SelectItem>
-                  <SelectItem value="TITULAR">Titular</SelectItem>
-                  <SelectItem value="DEPENDENTE">Dependente</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid gap-1">
-              <Label className="text-xs">Plano</Label>
-              <Select value={plano ? plano : ALL_TOKEN} onValueChange={(v) => setPlano(v === ALL_TOKEN ? '' : v)}>
-                <SelectTrigger className="w-[220px]">
-                  <SelectValue placeholder="Plano" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_TOKEN}>Todos</SelectItem>
-                  {safeList(options?.planos).map((p) => (
-                    <SelectItem key={p} value={p}>
-                      {p}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid gap-1">
-              <Label className="text-xs">Centro de custo</Label>
-              <Select value={centro ? centro : ALL_TOKEN} onValueChange={(v) => setCentro(v === ALL_TOKEN ? '' : v)}>
-                <SelectTrigger className="w-[220px]">
-                  <SelectValue placeholder="Centro de custo" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_TOKEN}>Todos</SelectItem>
-                  {safeList(options?.centros).map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex gap-2">
-              <Button onClick={() => refetch()} className="w-[110px]">
-                Aplicar
-              </Button>
-
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    variant="destructive"
-                    className="w-[160px]"
-                    disabled={isLoading || !data || data.totals.faturaCount === 0 || deleteMutation.isPending}
-                  >
-                    {deleteMutation.isPending ? 'Excluindo...' : 'Excluir fatura do mês'}
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Excluir fatura importada?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Esta ação removerá todas as linhas importadas para o mês{' '}
-                      <strong>{data?.mesReferencia?.slice(0, 7) || '—'}</strong> deste cliente. Essa operação não pode ser
-                      desfeita.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => deleteMutation.mutate()} className="bg-red-600 hover:bg-red-700">
-                      Confirmar exclusão
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </div>
-          </div>
+          <ReconFilters
+            mes={mes}
+            onMesChange={handleMesChange}
+            tipo={tipo}
+            onTipoChange={setTipo}
+            plano={plano}
+            onPlanoChange={setPlano}
+            centro={centro}
+            onCentroChange={setCentro}
+            options={options}
+            allToken={ALL_TOKEN}
+          />
         </CardHeader>
 
         <CardContent className="space-y-4">
@@ -685,113 +517,73 @@ export default function ReconciliationBoard() {
                 <StatCard title="Só na fatura" value={onlyInInvoiceSum} hint={`${tabs.onlyInInvoice.length} itens`} />
               </div>
 
+              {/* Barra de ações */}
+              <ReconActions
+                exportFormat={exportFormat}
+                onExportFormatChange={setExportFormat}
+                activeTab={activeTab}
+                buildExportUrl={(tab) => {
+                  const params = new URLSearchParams();
+                  params.set('mes', mes);
+                  params.set('format', exportFormat);
+                  params.set('tab', tab);
+                  if (tipo && tipo !== 'ALL') params.set('tipo', tipo);
+                  if (plano) params.set('plano', plano);
+                  if (centro) params.set('centro', centro);
+                  return `/clients/${clienteId}/reconciliation/export?${params.toString()}`;
+                }}
+                search={search}
+                onSearchChange={setSearch}
+                isLoading={isLoading}
+                hasInvoice={data.totals.faturaCount > 0}
+                mesReferencia={data.mesReferencia}
+                onDelete={() => deleteMutation.mutate()}
+                deletePending={deleteMutation.isPending}
+                onReconcile={() => reconcileMutation.mutate(selectedInvoiceIds)}
+                canReconcile={selectedInvoiceIds.length > 0}
+                reconcilePending={reconcileMutation.isPending}
+                // --- fechamento manual ---
+                canCloseMonth={data.totals.faturaCount > 0}
+                isClosed={isClosed}
+                suggestedTotal={allInvoiceTotal}
+                onConfirmClose={({ total, notes }) => closeMutation.mutate({ total, notes })}
+                closingPending={closeMutation.isPending}
+              />
+
+              {/* Charts */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Card className="shadow-sm">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm text-muted-foreground">Distribuição de casos</CardTitle>
-                  </CardHeader>
-                  <CardContent className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <RechartsTooltip />
-                        <Pie data={pieData} dataKey="value" nameKey="name" outerRadius={90} innerRadius={50} paddingAngle={2}>
-                          {pieData.map((entry, i) => (
-                            <Cell key={i} fill={pieColors[entry.key] || '#999'} />
-                          ))}
-                        </Pie>
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </CardContent>
-                </Card>
-
-                <Card className="shadow-sm">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm text-muted-foreground">Detalhe de divergências</CardTitle>
-                  </CardHeader>
-                  <CardContent className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={barData}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="label" />
-                        <YAxis allowDecimals={false} />
-                        <RechartsTooltip />
-                        <Bar dataKey="value" />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </CardContent>
-                </Card>
+                <DistributionPieCard data={pieData} colors={pieColors} />
+                <DivergencesBarCard data={barData} />
               </div>
 
-              <div className="flex items-center justify-between mt-2 mb-3">
-                <div className="flex items-center gap-2">
-                  <Select value={exportFormat} onValueChange={(v) => setExportFormat(v as any)}>
-                    <SelectTrigger className="w-[140px]">
-                      <SelectValue placeholder="Formato" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="xlsx">XLSX</SelectItem>
-                      <SelectItem value="csv">CSV</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <a
-                    href={buildExportUrl(activeTab)}
-                    rel="noopener"
-                    className="inline-block"
-                    onClick={(e) => {
-                      if (activeTab === 'okInvoice') {
-                        e.preventDefault();
-                        toast.info('Exportação da aba "Convergentes" ainda não está disponível.');
-                      }
-                    }}
-                  >
-                    <Button>Exportar aba atual</Button>
-                  </a>
-                  <a
-                    href={buildExportUrl('all')}
-                    rel="noopener"
-                    className="inline-block"
-                    onClick={(e) => {
-                      if (exportFormat === 'csv') {
-                        e.preventDefault();
-                        alert('CSV não suporta exportar "Todas". Selecione XLSX ou escolha uma aba específica.');
-                      }
-                    }}
-                  >
-                    <Button variant="secondary">Exportar todas (XLSX)</Button>
-                  </a>
-                </div>
-                <Button
-                  onClick={() => reconcileMutation.mutate(selectedInvoiceIds)}
-                  disabled={selectedInvoiceIds.length === 0 || reconcileMutation.isPending}
-                >
-                  <CheckCheckIcon className="mr-2 h-4 w-4" />
-                  {reconcileMutation.isPending
-                    ? 'Conciliando...'
-                    : `Marcar como Conciliado (${selectedInvoiceIds.length})`}
-                </Button>
-              </div>
-
+              {/* Abas + Tabelas */}
               <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
                 <TabsList className="mb-4">
-                  <TabsTrigger value="mismatched">Divergentes ({data.totals.mismatched})</TabsTrigger>
-                  <TabsTrigger value="onlyInInvoice">Só na fatura ({data.totals.onlyInInvoice})</TabsTrigger>
-                  <TabsTrigger value="onlyInRegistry">Só no cadastro ({data.totals.onlyInRegistry})</TabsTrigger>
-                  <TabsTrigger value="duplicates">Duplicados ({data.totals.duplicates})</TabsTrigger>
-                  <TabsTrigger value="okInvoice">Convergentes (OK) ({okRows.length})</TabsTrigger>
-                  <TabsTrigger value="allInvoice">Fatura (todos) ({tabs.allInvoice.length})</TabsTrigger>
+                  <TabsTrigger value="mismatched">
+                    Divergentes ({filteredTabs.mismatched.length}/{data.totals.mismatched})
+                  </TabsTrigger>
+                  <TabsTrigger value="onlyInInvoice">
+                    Só na fatura ({filteredTabs.onlyInInvoice.length}/{data.totals.onlyInInvoice})
+                  </TabsTrigger>
+                  <TabsTrigger value="onlyInRegistry">
+                    Só no cadastro ({filteredTabs.onlyInRegistry.length}/{data.totals.onlyInRegistry})
+                  </TabsTrigger>
+                  <TabsTrigger value="duplicates">
+                    Duplicados ({filteredTabs.duplicates.length}/{data.totals.duplicates})
+                  </TabsTrigger>
+                  <TabsTrigger value="okInvoice">
+                    Convergentes (OK) ({filteredOkRows.length})
+                  </TabsTrigger>
+                  <TabsTrigger value="allInvoice">
+                    Fatura (todos) ({filteredTabs.allInvoice.length})
+                  </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="mismatched">
                   <ReconTable
-                    columns={[
-                      { header: 'Beneficiário', key: 'nome' },
-                      { header: 'CPF', key: 'cpf' },
-                      { header: 'Cobrado', key: 'valorCobrado', align: 'right', emphasize: true },
-                      { header: 'Mensalidade', key: 'valorMensalidade', align: 'right' },
-                      { header: 'Diferença', key: 'diferenca', align: 'right', emphasize: true },
-                    ]}
-                    data={tabs.mismatched}
-                    getRowVariant={() => 'error'}
+                    columns={colsMismatch}
+                    data={filteredTabs.mismatched}
+                    getRowVariant={() => 'error' as RowVariant}
                     selectedIds={selectedInvoiceIds}
                     onSelectChange={handleSelectChange}
                   />
@@ -799,12 +591,8 @@ export default function ReconciliationBoard() {
 
                 <TabsContent value="onlyInInvoice">
                   <ReconTable
-                    columns={[
-                      { header: 'Beneficiário', key: 'nome' },
-                      { header: 'CPF', key: 'cpf' },
-                      { header: 'Valor Cobrado', key: 'valorCobrado', align: 'right' },
-                    ]}
-                    data={tabs.onlyInInvoice}
+                    columns={colsOnlyInv}
+                    data={filteredTabs.onlyInInvoice}
                     selectedIds={selectedInvoiceIds}
                     onSelectChange={handleSelectChange}
                   />
@@ -812,12 +600,8 @@ export default function ReconciliationBoard() {
 
                 <TabsContent value="onlyInRegistry">
                   <ReconTable
-                    columns={[
-                      { header: 'Beneficiário', key: 'nome' },
-                      { header: 'CPF', key: 'cpf' },
-                      { header: 'Mensalidade', key: 'valorMensalidade', align: 'right' },
-                    ]}
-                    data={tabs.onlyInRegistry}
+                    columns={colsOnlyReg}
+                    data={filteredTabs.onlyInRegistry}
                     selectedIds={selectedInvoiceIds}
                     onSelectChange={handleSelectChange}
                   />
@@ -825,15 +609,9 @@ export default function ReconciliationBoard() {
 
                 <TabsContent value="duplicates">
                   <ReconTable
-                    columns={[
-                      { header: 'Beneficiário', key: 'nome' },
-                      { header: 'CPF', key: 'cpf' },
-                      { header: 'Ocorrências', key: 'ocorrencias', align: 'right' },
-                      { header: 'Soma cobrada', key: 'somaCobrada', align: 'right', emphasize: true },
-                      { header: 'Valores', key: 'valores' },
-                    ]}
-                    data={tabs.duplicates}
-                    getRowVariant={() => 'error'}
+                    columns={colsDup}
+                    data={filteredTabs.duplicates}
+                    getRowVariant={() => 'error' as RowVariant}
                     selectedIds={selectedInvoiceIds}
                     onSelectChange={handleSelectChange}
                   />
@@ -841,16 +619,9 @@ export default function ReconciliationBoard() {
 
                 <TabsContent value="okInvoice">
                   <ReconTable
-                    columns={[
-                      { header: 'Beneficiário', key: 'nome' },
-                      { header: 'CPF', key: 'cpf' },
-                      { header: 'Cobrado', key: 'valorCobrado', align: 'right' },
-                      { header: 'Mensalidade', key: 'valorMensalidade', align: 'right' },
-                      { header: 'Diferença', key: 'diferenca', align: 'right', emphasize: true },
-                      { header: 'Status', key: 'status' },
-                    ]}
-                    data={okRows as any}
-                    getRowVariant={() => 'ok'}
+                    columns={colsAll}
+                    data={filteredOkRows as any}
+                    getRowVariant={() => 'ok' as RowVariant}
                     selectedIds={selectedInvoiceIds}
                     onSelectChange={handleSelectChange}
                   />
@@ -858,15 +629,8 @@ export default function ReconciliationBoard() {
 
                 <TabsContent value="allInvoice">
                   <ReconTable
-                    columns={[
-                      { header: 'Beneficiário', key: 'nome' },
-                      { header: 'CPF', key: 'cpf' },
-                      { header: 'Cobrado', key: 'valorCobrado', align: 'right' },
-                      { header: 'Mensalidade', key: 'valorMensalidade', align: 'right' },
-                      { header: 'Diferença', key: 'diferenca', align: 'right', emphasize: true },
-                      { header: 'Status', key: 'status' },
-                    ]}
-                    data={tabs.allInvoice}
+                    columns={colsAll}
+                    data={filteredTabs.allInvoice}
                     getRowVariant={(row) => {
                       const status = row.status;
                       if (status === 'DIVERGENTE') return 'error';

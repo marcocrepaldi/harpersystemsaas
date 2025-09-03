@@ -5,12 +5,14 @@ import {
   ColumnDef, flexRender, getCoreRowModel, getFilteredRowModel, getPaginationRowModel,
   getSortedRowModel, useReactTable,
 } from '@tanstack/react-table';
+import { useRouter } from 'next/navigation';
+import { ArrowUpDown, FilePlus2 } from 'lucide-react';
+
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import RowActions from '@/components/clients/RowActions';
 import type { ClientRow } from './ClientsPage';
-import { ArrowUpDown } from 'lucide-react';
-import { Checkbox } from '@/components/ui/checkbox';
-import { useRouter } from 'next/navigation';
 
 type Props = {
   items: ClientRow[];
@@ -48,6 +50,7 @@ export default function ClientsTable({
       ),
       enableSorting: false,
       enableHiding: false,
+      size: 36,
     },
     {
       accessorKey: 'name',
@@ -65,6 +68,31 @@ export default function ClientsTable({
     { accessorKey: 'personType', header: 'Tipo', cell: ({ row }) => row.original.personType ?? '—' },
     { accessorKey: 'status', header: 'Status', cell: ({ row }) => row.original.status ?? '—' },
     { accessorKey: 'cityUf', header: 'Cidade/UF', cell: ({ row }) => row.original.cityUf || '—' },
+
+    // 🔹 NOVA COLUNA: atalho para a tela de documentos do cliente
+    {
+      id: 'docs',
+      header: () => <span className="sr-only">Docs</span>,
+      cell: ({ row }) => (
+        <Button
+          variant="secondary"
+          size="sm"
+          className="h-8 px-2"
+          onClick={(e) => {
+            e.stopPropagation(); // não disparar o click da linha
+            router.push(`/clients/${encodeURIComponent(row.original.id)}/documents`);
+          }}
+          title="Abrir documentos"
+        >
+          <FilePlus2 className="mr-1 h-4 w-4" />
+          Docs
+        </Button>
+      ),
+      enableSorting: false,
+      enableHiding: false,
+      size: 90,
+    },
+
     {
       id: 'actions',
       header: () => <span className="sr-only">Ações</span>,
@@ -72,7 +100,7 @@ export default function ClientsTable({
       enableSorting: false,
       enableHiding: false,
     },
-  ], []);
+  ], [router]);
 
   const table = useReactTable({
     data: items,
@@ -111,6 +139,7 @@ export default function ClientsTable({
                   key={h.id}
                   onClick={() => h.column.getCanSort() && h.column.toggleSorting()}
                   className={h.column.getCanSort() ? 'cursor-pointer select-none' : undefined}
+                  style={h.getSize() ? { width: h.getSize() } : undefined}
                 >
                   {h.isPlaceholder ? null : flexRender(h.column.columnDef.header, h.getContext())}
                 </TableHead>
@@ -130,7 +159,9 @@ export default function ClientsTable({
                 <TableCell
                   key={cell.id}
                   onClick={(e) => {
-                    if (cell.column.id === 'select' || cell.column.id === 'actions') e.stopPropagation();
+                    if (cell.column.id === 'select' || cell.column.id === 'actions' || cell.column.id === 'docs') {
+                      e.stopPropagation();
+                    }
                   }}
                 >
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}

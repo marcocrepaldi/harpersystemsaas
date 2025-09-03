@@ -1,6 +1,7 @@
 // lib/format.ts
 "use client";
 
+/* ----------------------- helpers existentes (seus) ----------------------- */
 export const onlyDigits = (v: string | null | undefined) =>
   (v || "").replace(/\D+/g, "");
 
@@ -13,7 +14,7 @@ export function formatCPF(v: string) {
 }
 export function normalizeCPF(v: string) {
   const d = onlyDigits(v);
-  return d.length === 11 ? d : d; // retornamos como digitado (deixe a validação decidir)
+  return d.length === 11 ? d : d; // deixa a validação decidir
 }
 export function validateCPF(v: string) {
   const s = onlyDigits(v);
@@ -86,4 +87,37 @@ export function normalizePhone(v: string) {
 
 export function isEmail(v: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((v || "").trim());
+}
+
+/* --------------------- utilitários adicionados (docs) --------------------- */
+
+/** Formata bytes para B/KB/MB/GB/TB com 0–1 casa decimal. */
+export function formatBytes(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return "-";
+  if (n === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.min(Math.floor(Math.log(n) / Math.log(1024)), units.length - 1);
+  const v = n / Math.pow(1024, i);
+  return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+/** Formata uma data ISO para string local (fallback ao valor bruto). */
+export function formatDate(dt?: string | null, opts?: Intl.DateTimeFormatOptions): string {
+  if (!dt) return "-";
+  try {
+    const d = new Date(dt);
+    if (Number.isNaN(d.getTime())) return dt;
+    return d.toLocaleString(undefined, opts);
+  } catch {
+    return dt;
+  }
+}
+
+/** Converte "a, b, c" → ["a","b","c"]. */
+export function parseTags(input?: string): string[] {
+  if (!input) return [];
+  return input
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
