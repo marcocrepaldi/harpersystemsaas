@@ -7,7 +7,12 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { AppSidebar } from '@/components/app-sidebar';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import {
-  Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { Separator } from '@/components/ui/separator';
 import { Card, CardContent } from '@/components/ui/card';
@@ -20,12 +25,20 @@ import type { DocumentFromApi } from '@/types/document';
 
 function PageInner(): React.ReactElement {
   const router = useRouter();
-
-  // 🔧 Alinha com a pasta [clientId] e com o backend (:clientId)
-  const params = useParams<{ clientId: string }>();
-  const clientId = (params?.clientId as string) ?? '';
-
+  const params = useParams<{ id?: string }>();
   const searchParams = useSearchParams();
+
+  // 🔹 Pega o clientId direto de params.id
+  const clientId =
+    params?.id ||
+    (typeof window !== 'undefined'
+      ? window.location.pathname.split('/').filter(Boolean)[1]
+      : '');
+
+  // 🔹 Log para debug
+  console.log('[DocumentsPage] Params:', params);
+  console.log('[DocumentsPage] clientId resolvido:', clientId);
+
   const qs = useMemo(
     () => (searchParams?.toString() ? `?${searchParams.toString()}` : ''),
     [searchParams],
@@ -34,7 +47,6 @@ function PageInner(): React.ReactElement {
   const [refreshKey, setRefreshKey] = useState(0);
 
   function handleUploaded(_doc: DocumentFromApi) {
-    // só força recarregar a tabela
     setRefreshKey((k) => k + 1);
   }
 
@@ -65,7 +77,10 @@ function PageInner(): React.ReactElement {
             </Breadcrumb>
           </div>
           <div className="ml-auto flex gap-2 px-4">
-            <Button variant="outline" onClick={() => router.push(`/clients/${encodeURIComponent(clientId)}${qs}`)}>
+            <Button
+              variant="outline"
+              onClick={() => router.push(`/clients/${encodeURIComponent(clientId)}${qs}`)}
+            >
               Voltar
             </Button>
           </div>

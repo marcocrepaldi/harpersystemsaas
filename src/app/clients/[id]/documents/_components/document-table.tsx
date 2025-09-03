@@ -53,25 +53,42 @@ export default function DocumentTable({ clientId, refreshKey }: Props) {
 
   async function handleDownload(doc: DocumentFromApi) {
     try {
-      const res = await fetch(`/api/clients/${encodeURIComponent(clientId)}/documents/${encodeURIComponent(doc.id)}/download`, {
-        credentials: 'include',
-        headers: { Authorization: '' }, // api gateway já adiciona, se precisar
+      // Usa a mesma base da API configurada no .env
+      const baseUrl =
+        process.env.NEXT_PUBLIC_API_BASE_URL ||
+        `${process.env.NEXT_PUBLIC_API_URL}/api`;
+
+      const url = `${baseUrl}/clients/${encodeURIComponent(clientId)}/documents/${encodeURIComponent(doc.id)}/download`;
+
+      // Monta os headers necessários (auth + tenant)
+      const headers = new Headers();
+      const token = localStorage.getItem("accessToken");
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+
+      // injeta tenant, se existir
+      const tenant = localStorage.getItem("tenantSlug") || process.env.NEXT_PUBLIC_TENANT_SLUG;
+      if (tenant) headers.set("x-tenant-subdomain", tenant);
+
+      const res = await fetch(url, {
+        method: "GET",
+        headers,
       });
+
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
+      const downloadUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = downloadUrl;
       a.download = doc.filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(downloadUrl);
     } catch (e) {
-      toast.error(errorMessage(e) || 'Falha no download.');
+      toast.error(errorMessage(e) || "Falha no download.");
     }
   }
-
   async function handleDelete(doc: DocumentFromApi) {
     const ok = window.confirm(`Excluir "${doc.filename}"?`);
     if (!ok) return;

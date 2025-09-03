@@ -8,7 +8,13 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
+import {
+  Select,
+  SelectTrigger,
+  SelectContent,
+  SelectItem,
+  SelectValue,
+} from '@/components/ui/select';
 import { apiFetch } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
 import { fileToBase64 } from '@/lib/files';
@@ -16,8 +22,20 @@ import { parseTags } from '@/lib/format';
 import type { DocumentCategory, DocumentFromApi } from '@/types/document';
 
 const CATEGORIES: DocumentCategory[] = [
-  'APOLICE','PROPOSTA','CONTRATO','FATURA','ANEXO','ADITIVO','BOLETIMDEOCORRENCIA','AVISODESINISTRO',
-  'LAUDODEPERICIA','COMUNICADODEACIDENTE','COMPROVANTEDERESIDENCIA','RELATORIODEREGULACAO','DOCUMENTO','OUTRO',
+  'APOLICE',
+  'PROPOSTA',
+  'CONTRATO',
+  'FATURA',
+  'ANEXO',
+  'ADITIVO',
+  'BOLETIMDEOCORRENCIA',
+  'AVISODESINISTRO',
+  'LAUDODEPERICIA',
+  'COMUNICADODEACIDENTE',
+  'COMPROVANTEDERESIDENCIA',
+  'RELATORIODEREGULACAO',
+  'DOCUMENTO',
+  'OUTRO',
 ];
 
 type Props = {
@@ -33,8 +51,8 @@ export default function DocumentUpload({ clientId, onUploaded }: Props) {
   const [submitting, setSubmitting] = useState(false);
 
   function normalizeDataUrl(b64: string, mime: string) {
-    // backend aceita com ou sem prefixo; manter formato consistente ajuda a depurar
-    if (b64.includes(',')) return b64; // já é data URL
+    // Mantém dataURL consistente para facilitar debug no backend
+    if (b64.includes(',')) return b64;
     const safeMime = mime || 'application/octet-stream';
     return `data:${safeMime};base64,${b64}`;
   }
@@ -53,7 +71,7 @@ export default function DocumentUpload({ clientId, onUploaded }: Props) {
 
     setSubmitting(true);
     try {
-      const raw = await fileToBase64(file); // pode vir dataURL ou só base64
+      const raw = await fileToBase64(file); // base64 ou dataURL
       const dataUrl = normalizeDataUrl(raw, file.type);
 
       const body = {
@@ -65,9 +83,13 @@ export default function DocumentUpload({ clientId, onUploaded }: Props) {
         notes: notes || undefined,
       };
 
+      // 🚀 Agora usamos apiFetch para enviar o arquivo
       const doc = await apiFetch<DocumentFromApi>(
         `/clients/${encodeURIComponent(clientId)}/documents/upload-base64`,
-        { method: 'POST', body }
+        {
+          method: 'POST',
+          body,
+        }
       );
 
       toast.success('Documento enviado.');
@@ -105,10 +127,14 @@ export default function DocumentUpload({ clientId, onUploaded }: Props) {
                 onValueChange={(v) => setCategory(v as DocumentCategory)}
                 disabled={submitting}
               >
-                <SelectTrigger><SelectValue placeholder="Categoria" /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue placeholder="Categoria" />
+                </SelectTrigger>
                 <SelectContent>
                   {CATEGORIES.map((c) => (
-                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                    <SelectItem key={c} value={c}>
+                      {c}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>

@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { detectTenantSlug } from "@/lib/tenant";
+import { errorMessage } from "@/lib/errors";
 
 export type ApiFetchOptions = {
   method?: string;
@@ -155,7 +156,7 @@ export async function apiFetch<T = unknown>(
     body: ["GET", "HEAD"].includes(method.toUpperCase()) ? undefined : serializedBody,
     credentials: "same-origin",
     cache: "no-store",
-    signal, // <- repassa o AbortSignal
+    signal,
   });
 
   // 204 / sem body
@@ -171,6 +172,7 @@ export async function apiFetch<T = unknown>(
   };
 
   if (!res.ok) {
+    // redireciona 401 (se permitido)
     if (res.status === 401 && !skipAuthRedirect && typeof window !== "undefined") {
       try {
         clearAuth();
@@ -180,11 +182,22 @@ export async function apiFetch<T = unknown>(
       const next = encodeURIComponent(window.location.pathname + window.location.search);
       window.location.href = `/login?next=${next}`;
     }
+
     const data = parseJSON();
-    const message =
+
+    // monta uma mensagem enxuta e segura (sem base64, truncada)
+    let message =
       (data && typeof data === "object" && "message" in data && (data as any).message) ||
       (typeof data === "string" && data) ||
       `HTTP ${res.status}`;
+
+    message = errorMessage(message);
+
+    // mensagens mais amigáveis para códigos comuns
+    if (res.status === 413) {
+      message = "Arquivo muito grande para enviar.";
+    }
+
     throw new Error(message);
   }
 
