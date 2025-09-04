@@ -160,6 +160,7 @@ function useSidebarData() {
         "/settings/limits",
         "/settings/services",
         "/settings/branches",
+        "/insurers", // <- para considerar "Seguradoras" ativo dentro da seção
       ]),
       items: [
         { title: "Configurações gerais", url: "/settings" },
@@ -168,6 +169,7 @@ function useSidebarData() {
         { title: "Limites", url: "/settings/limits" },
         { title: "Serviços", url: "/settings/services" },
         { title: "Filiais", url: "/settings/branches" },
+        { title: "Seguradoras", url: "/insurers" }, // <- novo item
       ],
     },
   ];

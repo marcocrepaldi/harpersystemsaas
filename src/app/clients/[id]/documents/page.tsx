@@ -15,7 +15,7 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { Separator } from '@/components/ui/separator';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -23,21 +23,22 @@ import DocumentUpload from './_components/document-upload';
 import DocumentTable from './_components/document-table';
 import type { DocumentFromApi } from '@/types/document';
 
-function PageInner(): React.ReactElement {
+function DocumentLoadingSkeleton() {
+  return (
+    <div className="p-4 pt-0">
+      <Skeleton className="mb-3 h-6 w-48" />
+      <Skeleton className="h-72 w-full" />
+    </div>
+  );
+}
+
+export default function DocumentsPage(): React.ReactElement {
   const router = useRouter();
-  const params = useParams<{ id?: string }>();
+  const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
 
-  // 🔹 Pega o clientId direto de params.id
-  const clientId =
-    params?.id ||
-    (typeof window !== 'undefined'
-      ? window.location.pathname.split('/').filter(Boolean)[1]
-      : '');
-
-  // 🔹 Log para debug
-  console.log('[DocumentsPage] Params:', params);
-  console.log('[DocumentsPage] clientId resolvido:', clientId);
+  // 🔹 Acesso direto ao clientId. Next.js garante que ele é uma string
+  const clientId = params.id;
 
   const qs = useMemo(
     () => (searchParams?.toString() ? `?${searchParams.toString()}` : ''),
@@ -48,6 +49,12 @@ function PageInner(): React.ReactElement {
 
   function handleUploaded(_doc: DocumentFromApi) {
     setRefreshKey((k) => k + 1);
+  }
+
+  if (!clientId) {
+    // 🔹 Caso o ID não esteja disponível (por exemplo, em rotas aninhadas),
+    // você pode renderizar um fallback ou redirecionar.
+    return <DocumentLoadingSkeleton />;
   }
 
   return (
@@ -87,32 +94,17 @@ function PageInner(): React.ReactElement {
         </header>
 
         <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-          <div className="rounded-xl bg-muted/50 p-6">
+          <Card className="rounded-xl bg-muted/50 p-6">
             <div className="mb-4 text-base font-medium">Enviar documento</div>
             <DocumentUpload clientId={clientId} onUploaded={handleUploaded} />
-          </div>
+          </Card>
 
-          <div className="rounded-xl bg-muted/50 p-6">
+          <Card className="rounded-xl bg-muted/50 p-6">
             <div className="mb-4 text-base font-medium">Documentos</div>
             <DocumentTable clientId={clientId} refreshKey={refreshKey} />
-          </div>
+          </Card>
         </div>
       </SidebarInset>
     </SidebarProvider>
-  );
-}
-
-export default function DocumentsPage(): React.ReactElement {
-  return (
-    <Suspense
-      fallback={
-        <div className="p-4">
-          <Skeleton className="mb-3 h-6 w-48" />
-          <Skeleton className="h-72 w-full" />
-        </div>
-      }
-    >
-      <PageInner />
-    </Suspense>
   );
 }
