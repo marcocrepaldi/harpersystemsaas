@@ -48,14 +48,31 @@ export default function CloseReconciliationDialog({
   );
   const [notes, setNotes] = React.useState('');
 
+  // sempre que abrir o modal ou mudar o sugerido, preenche o campo
+  React.useEffect(() => {
+    if (open && suggestedTotal != null) {
+      setTotalStr(toBRL(suggestedTotal));
+    }
+  }, [open, suggestedTotal]);
+
+  const totalParsed = React.useMemo(() => parseCurrency(totalStr), [totalStr]);
+  const canConfirm = Number.isFinite(totalParsed);
+
   const handleUseSuggested = () => {
     if (suggestedTotal != null) setTotalStr(toBRL(suggestedTotal));
   };
 
   const handleConfirm = () => {
-    const total = parseCurrency(totalStr);
-    onConfirm({ total, notes: notes.trim() || undefined });
+    if (!canConfirm) return;
+    onConfirm({ total: totalParsed, notes: notes.trim() || undefined });
     setOpen(false);
+  };
+
+  const onKeyDown: React.KeyboardEventHandler<HTMLInputElement | HTMLTextAreaElement> = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && canConfirm && !pending) {
+      e.preventDefault();
+      handleConfirm();
+    }
   };
 
   return (
@@ -64,16 +81,16 @@ export default function CloseReconciliationDialog({
         <Button
           disabled={disabled || pending}
           className="bg-emerald-600 hover:bg-emerald-700 text-white"
-          // se você adicionou o variant "success", pode usar: variant="success"
         >
           {pending ? 'Fechando...' : triggerLabel}
         </Button>
       </DialogTrigger>
+
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Fechar conciliação do mês</DialogTitle>
           <DialogDescription>
-            Confirme o valor total da fatura e, opcionalmente, registre observações. Após o fechamento, as comissões serão geradas.
+            Confirme o valor total da fatura e, opcionalmente, registre observações.
           </DialogDescription>
         </DialogHeader>
 
@@ -84,9 +101,17 @@ export default function CloseReconciliationDialog({
               <Input
                 value={totalStr}
                 onChange={(e) => setTotalStr(e.target.value)}
+                onKeyDown={onKeyDown}
                 placeholder="R$ 0,00"
+                disabled={pending}
+                inputMode="decimal"
               />
-              <Button type="button" variant="secondary" onClick={handleUseSuggested} disabled={suggestedTotal == null}>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handleUseSuggested}
+                disabled={pending || suggestedTotal == null}
+              >
                 Usar soma
               </Button>
             </div>
@@ -102,19 +127,22 @@ export default function CloseReconciliationDialog({
             <Textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
+              onKeyDown={onKeyDown}
               rows={3}
               placeholder="Notas do fechamento, diferenças, acordos, etc."
+              disabled={pending}
             />
           </div>
         </div>
 
         <DialogFooter>
-          <Button variant="secondary" onClick={() => setOpen(false)}>
+          <Button variant="secondary" onClick={() => setOpen(false)} disabled={pending}>
             Cancelar
           </Button>
           <Button
             onClick={handleConfirm}
             className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            disabled={!canConfirm || pending}
           >
             Confirmar fechamento
           </Button>

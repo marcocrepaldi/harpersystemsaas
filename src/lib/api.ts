@@ -5,7 +5,7 @@ import { errorMessage } from "@/lib/errors";
 export type ApiFetchOptions = {
   method?: string;
   headers?: HeadersInit;
-  body?: any; // objeto, string, FormData etc.
+  body?: any; // objeto, string, FormData, Blob, ArrayBuffer, URLSearchParams...
   query?: Record<
     string,
     | string
@@ -22,15 +22,15 @@ export type ApiFetchOptions = {
   /** Suporte a AbortController */
   signal?: AbortSignal | null;
 
-  /** (NOVO) Força tipo de resposta; por padrão auto-detecta pelo Content-Type */
+  /** Força tipo de resposta; por padrão auto-detecta pelo Content-Type */
   responseType?: "json" | "text" | "blob";
-  /** (NOVO) Timeout em ms (client-side via AbortController encadeado) */
+  /** Timeout em ms (client-side via AbortController encadeado) */
   timeoutMs?: number;
-  /** (NOVO) Re-tentativas (ex.: 429/503). 0 = desativado (default) */
+  /** Re-tentativas (ex.: 429/503). 0 = desativado (default) */
   retries?: number;
-  /** (NOVO) Delay base entre tentativas (ms) quando não houver Retry-After */
+  /** Delay base entre tentativas (ms) quando não houver Retry-After */
   retryDelayMs?: number;
-  /** (NOVO) Callback extra ao receber 401 (além do redirecionamento padrão) */
+  /** Callback extra ao receber 401 (além do redirecionamento padrão) */
   onUnauthorized?: () => void;
 };
 
@@ -59,14 +59,18 @@ export function setTokens(at?: string | null, rt?: string | null, user?: StoredU
   memUser = user ?? null;
 
   if (typeof window !== "undefined") {
-    if (at) localStorage.setItem("accessToken", at);
-    else localStorage.removeItem("accessToken");
+    try {
+      if (at) localStorage.setItem("accessToken", at);
+      else localStorage.removeItem("accessToken");
 
-    if (rt) localStorage.setItem("refreshToken", rt);
-    else localStorage.removeItem("refreshToken");
+      if (rt) localStorage.setItem("refreshToken", rt);
+      else localStorage.removeItem("refreshToken");
 
-    if (user) localStorage.setItem("currentUser", JSON.stringify(user));
-    else localStorage.removeItem("currentUser");
+      if (user) localStorage.setItem("currentUser", JSON.stringify(user));
+      else localStorage.removeItem("currentUser");
+    } catch {
+      // ambientes com storage bloqueado (private mode etc.)
+    }
   }
 }
 
@@ -75,27 +79,62 @@ export function clearAuth() {
   memRT = null;
   memUser = null;
   if (typeof window !== "undefined") {
-    localStorage.removeItem("accessToken");
-    localStorage.removeItem("refreshToken");
-    localStorage.removeItem("currentUser");
+    try {
+      localStorage.removeItem("accessToken");
+      localStorage.removeItem("refreshToken");
+      localStorage.removeItem("currentUser");
+    } catch {
+      // ignore
+    }
   }
 }
 
 function getAccessToken(): string | null {
   if (memAT) return memAT;
-  if (typeof window !== "undefined") return localStorage.getItem("accessToken");
+  if (typeof window !== "undefined") {
+    try {
+      return localStorage.getItem("accessToken");
+    } catch {
+      return null;
+    }
+  }
   return null;
 }
 
 /** ---------------- Helpers ---------------- */
+function isAbsoluteUrl(path: string) {
+  // http/https + também suporta URLs "protocol-relative" //host/path
+  return /^https?:\/\//i.test(path) || /^\/\//.test(path);
+}
+
 function buildUrl(
   path: string,
   baseUrl?: string,
   query?: ApiFetchOptions["query"]
 ) {
+  // Se já for absoluta, só aplica query
+  if (isAbsoluteUrl(path)) {
+    const url = new URL(path, typeof window !== "undefined" ? window.location.origin : "http://localhost");
+    if (query) {
+      Object.entries(query).forEach(([k, v]) => {
+        if (Array.isArray(v)) {
+          v.forEach((item) => {
+            if (item === undefined || item === null || item === "") return;
+            url.searchParams.append(k, String(item));
+          });
+          return;
+        }
+        if (v === undefined || v === null || v === "") return;
+        url.searchParams.set(k, String(v));
+      });
+    }
+    return url.toString();
+  }
+
   const base = (baseUrl || DEFAULT_BASE).replace(/\/+$/, "");
   const clean = path.startsWith("/") ? path : `/${path}`;
   const url = new URL(`${base}${clean}`);
+
   if (query) {
     Object.entries(query).forEach(([k, v]) => {
       if (Array.isArray(v)) {
@@ -115,25 +154,51 @@ function buildUrl(
 function isFormLike(b: any) {
   return typeof FormData !== "undefined" && b instanceof FormData;
 }
+function isUrlParams(b: any) {
+  return typeof URLSearchParams !== "undefined" && b instanceof URLSearchParams;
+}
 
 function ensureSerializedBody(body: any, headers: Headers) {
   if (body == null) return undefined;
 
-  // FormData/Blob/ArrayBuffer → envia como está
+  // FormData/Blob/File/ArrayBuffer/URLSearchParams → envia como está
   if (
     isFormLike(body) ||
     (typeof Blob !== "undefined" && body instanceof Blob) ||
-    body instanceof ArrayBuffer
+    body instanceof ArrayBuffer ||
+    isUrlParams(body)
   ) {
     // ⚠️ Não setar Content-Type para FormData: o browser define boundary automaticamente
     if (isFormLike(body) && headers.has("Content-Type")) {
       headers.delete("Content-Type");
     }
+    // Para URLSearchParams, se header não for definido, o browser define o correto.
     return body;
   }
 
   // Se já é string, não re-serializa
   if (typeof body === "string") return body;
+
+  // Se o chamador setou x-www-form-urlencoded e mandou um objeto,
+  // serializamos automaticamente para URLSearchParams
+  const ctHeader = headers.get("Content-Type") || "";
+  if (ctHeader.toLowerCase().includes("application/x-www-form-urlencoded")) {
+    const usp = new URLSearchParams();
+    Object.entries(body as Record<string, any>).forEach(([k, v]) => {
+      if (v === undefined || v === null) return;
+      if (Array.isArray(v)) {
+        v.forEach((it) => {
+          if (it === undefined || it === null) return;
+          usp.append(k, String(it));
+        });
+      } else {
+        usp.set(k, String(v));
+      }
+    });
+    // o browser definirá o header correto com charset
+    headers.delete("Content-Type");
+    return usp;
+  }
 
   // JSON por padrão
   if (!headers.has("Content-Type")) {
@@ -144,7 +209,7 @@ function ensureSerializedBody(body: any, headers: Headers) {
     return JSON.stringify(body);
   }
 
-  // Se Content-Type foi definido para algo não-JSON, o chamador deve prover string/Blob
+  // Se Content-Type foi definido para algo não-JSON, o chamador deve prover string/Blob/ArrayBuffer/URLSearchParams
   return body;
 }
 
@@ -154,7 +219,7 @@ function sleep(ms: number) {
 
 function parseRetryAfter(h: string | null): number | null {
   if (!h) return null;
-  // pode ser segundos ou data
+  // pode ser segundos ou data absoluta
   const secs = Number(h);
   if (Number.isFinite(secs)) return Math.max(0, secs * 1000);
   const date = Date.parse(h);
@@ -193,7 +258,7 @@ async function resolveResponse<T>(
     return (await res.blob()) as unknown as T;
   }
 
-  if (ct.includes("application/json")) {
+  if (ct.includes("application/json") || ct.includes("application/problem+json")) {
     const text = await res.text();
     try {
       return JSON.parse(text) as T;
@@ -231,6 +296,15 @@ export async function apiFetch<T = unknown>(
   const url = buildUrl(path, baseUrl, query);
   const headers = new Headers(inputHeaders);
 
+  // Accept padrão
+  if (!headers.has("Accept")) {
+    headers.set("Accept", "application/json, text/plain, */*");
+  }
+  // Header comum para diferenciação em proxies/backends
+  if (!headers.has("X-Requested-With")) {
+    headers.set("X-Requested-With", "XMLHttpRequest");
+  }
+
   // Tenant
   const tenant = detectTenantSlug();
   if (tenant && !headers.has("x-tenant-subdomain")) {
@@ -258,11 +332,10 @@ export async function apiFetch<T = unknown>(
 
   // helper para chamar fetch (permite retries)
   const doFetch = async (): Promise<Response> => {
-    // Unifica signals via AbortSignal.any (se disponível no browser)
+    // Unifica signals via AbortSignal.any (se disponível)
+    const anyFn = (AbortSignal as any)?.any;
     const finalSignal =
-      typeof (AbortSignal as any).any === "function" && signals.length > 1
-        ? (AbortSignal as any).any(signals)
-        : signals[0];
+      typeof anyFn === "function" && signals.length > 1 ? anyFn(signals) : signals[0];
 
     return fetch(url, {
       method,
@@ -271,6 +344,7 @@ export async function apiFetch<T = unknown>(
       credentials: "same-origin",
       cache: "no-store",
       signal: finalSignal,
+      // redirect: "follow" // default
     });
   };
 
@@ -283,6 +357,7 @@ export async function apiFetch<T = unknown>(
       res = await doFetch();
       // sucesso ou erro não-retryable
       if (res.status !== 429 && res.status !== 503) break;
+
       // retryable: espera Retry-After ou fallback
       if (attempt === retries) break;
       const ra = parseRetryAfter(res.headers.get("Retry-After"));
@@ -306,10 +381,8 @@ export async function apiFetch<T = unknown>(
     throw new Error(msg);
   }
 
-  // 204 / 205 já tratados dentro de resolveResponse
-
   if (!res.ok) {
-    // redireciona 401 (se permitido)
+    // trata 401
     if (res.status === 401) {
       onUnauthorized?.();
       if (!skipAuthRedirect && typeof window !== "undefined") {
@@ -318,19 +391,31 @@ export async function apiFetch<T = unknown>(
         } catch {
           // ignore
         }
-        const next = encodeURIComponent(window.location.pathname + window.location.search);
-        window.location.href = `/login?next=${next}`;
+        // Evita múltiplos redirects simultâneos
+        const w = window as any;
+        if (!w.__redirectingToLogin) {
+          w.__redirectingToLogin = true;
+          const next = encodeURIComponent(window.location.pathname + window.location.search);
+          window.location.href = `/login?next=${next}`;
+        }
       }
     }
 
     const raw = await resolveResponse<any>(res, responseType ?? "json");
 
-    // monta uma mensagem enxuta e segura (sem base64, truncada)
-    let message =
-      (raw && typeof raw === "object" && "message" in raw && (raw as any).message) ||
-      (typeof raw === "string" && raw) ||
-      `HTTP ${res.status}`;
+    // tenta extrair mensagem em diferentes formatos
+    let rawMsg: string | undefined;
+    if (raw && typeof raw === "object") {
+      rawMsg =
+        (raw as any).message ??
+        (raw as any).error ??
+        ((Array.isArray((raw as any).errors) && (raw as any).errors[0]?.message) || undefined);
+    } else if (typeof raw === "string") {
+      rawMsg = raw;
+    }
 
+    // monta uma mensagem enxuta e segura (sem base64, truncada)
+    let message = rawMsg || `HTTP ${res.status}`;
     message = errorMessage(message);
 
     // mensagens mais amigáveis para códigos comuns
@@ -338,7 +423,16 @@ export async function apiFetch<T = unknown>(
       message = "Arquivo muito grande para enviar.";
     }
 
-    throw new Error(message);
+    const err = new Error(message) as Error & {
+      status?: number;
+      url?: string;
+      data?: unknown;
+    };
+    err.status = res.status;
+    err.url = url;
+    err.data = raw;
+
+    throw err;
   }
 
   return (await resolveResponse<T>(res, responseType)) as T;

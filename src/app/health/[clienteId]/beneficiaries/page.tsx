@@ -1,3 +1,4 @@
+// [FRONTEND] app/health/[clienteId]/beneficiaries/page.tsx
 'use client';
 
 import * as React from 'react';
@@ -9,7 +10,6 @@ import { toast } from 'sonner';
 import { apiFetch } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
 
-// Layout & UI
 import { AppSidebar } from '@/components/app-sidebar';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
@@ -25,23 +25,23 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-// Gráfico
+// Modal e Tabs
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+
 import { GraficoIdadeBeneficiarios } from "./graficoIdadeBeneficiarios";
 
-// Modal de erros de importação
-import { ImportErrorsModal } from '@/components/beneficiaries/import-errors-modal';
+import { MoreVertical, SlidersHorizontal, Search, X, Upload, PlusCircle, Loader2, Users, UserCheck, DollarSign, ClipboardList, Copy, CheckCircle2, AlertTriangle } from "lucide-react";
 
-// Ícones
-import { MoreVertical, SlidersHorizontal, Search, X, Upload, PlusCircle, Loader2, Users, UserCheck, DollarSign } from "lucide-react";
+/* ===================== Tipos ===================== */
 
-// ---------- Tipos ----------
 type PageResult<T> = { items: T[]; page: number; limit: number; total: number };
 
 type BeneficiaryRow = {
   id: string;
   nomeCompleto: string;
   cpf?: string | null;
-  tipo: "Titular" | "Filho" | "Cônjuge";
+  tipo: string;
   dataEntrada: string;
   dataNascimento?: string | null;
   idade?: number | null;
@@ -60,66 +60,203 @@ type BeneficiaryRow = {
   regimeCobranca?: string | null;
   motivoMovimento?: string | null;
   observacoes?: string | null;
-  status: "Ativo" | "Inativo";
+
+  Empresa?: string | null;
+  Cpf?: string | null;
+  Usuario?: string | null;
+  Nm_Social?: string | null;
+  Estado_Civil?: string | null;
+  Data_Nascimento?: string | null;
+  Sexo?: string | null;
+  Identidade?: string | null;
+  Orgao_Exp?: string | null;
+  Uf_Orgao?: string | null;
+  Uf_Endereco?: string | null;
+  Cidade?: string | null;
+  Tipo_Logradouro?: string | null;
+  Logradouro?: string | null;
+  Numero?: string | null;
+  Complemento?: string | null;
+  Bairro?: string | null;
+  Cep?: string | null;
+  Fone?: string | null;
+  Celular?: string | null;
+  Plano?: string | null;
+  Matricula?: string | null;
+  Filial?: string | null;
+  Codigo_Usuario?: string | null;
+  Dt_Admissao?: string | null;
+  Codigo_Congenere?: string | null;
+  Nm_Congenere?: string | null;
+  Tipo_Usuario?: string | null;
+  Nome_Mae?: string | null;
+  Pis?: string | null;
+  Cns?: string | null;
+  Ctps?: string | null;
+  Serie_Ctps?: string | null;
+  Data_Processamento?: string | null;
+  Data_Cadastro?: string | null;
+  Unidade?: string | null;
+  Descricao_Unidade?: string | null;
+  Cpf_Dependente?: string | null;
+  Grau_Parentesco?: string | null;
+  Dt_Casamento?: string | null;
+  Nu_Registro_Pessoa_Natural?: string | null;
+  Cd_Tabela?: string | null;
+  Empresa_Utilizacao?: string | null;
+  Dt_Cancelamento?: string | null;
+
+  status: string;
+  dataSaida?: string | null;
+};
+
+type CsvColumn = {
+  key: string;
+  field: keyof BeneficiaryRow & string;
+  label: string;
+  isDate?: boolean;
+};
+
+const RAW_CSV_COLUMNS = [
+  { key: "csv_Empresa", field: "Empresa", label: "Empresa" },
+  { key: "csv_Cpf", field: "Cpf", label: "CPF (Operadora)" },
+  { key: "csv_Usuario", field: "Usuario", label: "Usuário (Operadora)" },
+  { key: "csv_Nm_Social", field: "Nm_Social", label: "Nome Social" },
+  { key: "csv_Estado_Civil", field: "Estado_Civil", label: "Estado Civil" },
+  { key: "csv_Data_Nascimento", field: "Data_Nascimento", label: "Nascimento (Operadora)", isDate: true },
+  { key: "csv_Sexo", field: "Sexo", label: "Sexo (Operadora)" },
+  { key: "csv_Identidade", field: "Identidade", label: "Identidade" },
+  { key: "csv_Orgao_Exp", field: "Orgao_Exp", label: "Órgão Exp." },
+  { key: "csv_Uf_Orgao", field: "Uf_Orgao", label: "UF Órgão" },
+  { key: "csv_Uf_Endereco", field: "Uf_Endereco", label: "UF Endereço" },
+  { key: "csv_Cidade", field: "Cidade", label: "Cidade" },
+  { key: "csv_Tipo_Logradouro", field: "Tipo_Logradouro", label: "Tipo Logradouro" },
+  { key: "csv_Logradouro", field: "Logradouro", label: "Logradouro" },
+  { key: "csv_Numero", field: "Numero", label: "Número" },
+  { key: "csv_Complemento", field: "Complemento", label: "Complemento" },
+  { key: "csv_Bairro", field: "Bairro", label: "Bairro" },
+  { key: "csv_Cep", field: "Cep", label: "CEP" },
+  { key: "csv_Fone", field: "Fone", label: "Telefone" },
+  { key: "csv_Celular", field: "Celular", label: "Celular" },
+  { key: "csv_Plano", field: "Plano", label: "Plano (Operadora)" },
+  { key: "csv_Matricula", field: "Matricula", label: "Matrícula (Operadora)" },
+  { key: "csv_Filial", field: "Filial", label: "Filial" },
+  { key: "csv_Codigo_Usuario", field: "Codigo_Usuario", label: "Código Usuário" },
+  { key: "csv_Dt_Admissao", field: "Dt_Admissao", label: "Admissão", isDate: true },
+  { key: "csv_Codigo_Congenere", field: "Codigo_Congenere", label: "Cód. Congênere" },
+  { key: "csv_Nm_Congenere", field: "Nm_Congenere", label: "Nome Congênere" },
+  { key: "csv_Tipo_Usuario", field: "Tipo_Usuario", label: "Tipo Usuário" },
+  { key: "csv_Nome_Mae", field: "Nome_Mae", label: "Nome da Mãe" },
+  { key: "csv_Pis", field: "Pis", label: "PIS" },
+  { key: "csv_Cns", field: "Cns", label: "CNS" },
+  { key: "csv_Ctps", field: "Ctps", label: "CTPS" },
+  { key: "csv_Serie_Ctps", field: "Serie_Ctps", label: "Série CTPS" },
+  { key: "csv_Data_Processamento", field: "Data_Processamento", label: "Processamento", isDate: true },
+  { key: "csv_Data_Cadastro", field: "Data_Cadastro", label: "Cadastro", isDate: true },
+  { key: "csv_Unidade", field: "Unidade", label: "Unidade" },
+  { key: "csv_Descricao_Unidade", field: "Descricao_Unidade", label: "Descrição Unidade" },
+  { key: "csv_Cpf_Dependente", field: "Cpf_Dependente", label: "CPF Dependente" },
+  { key: "csv_Grau_Parentesco", field: "Grau_Parentesco", label: "Grau Parentesco" },
+  { key: "csv_Dt_Casamento", field: "Dt_Casamento", label: "Data Casamento", isDate: true },
+  { key: "csv_Nu_Registro_Pessoa_Natural", field: "Nu_Registro_Pessoa_Natural", label: "Nº RPN" },
+  { key: "csv_Cd_Tabela", field: "Cd_Tabela", label: "Cód. Tabela" },
+  { key: "csv_Empresa_Utilizacao", field: "Empresa_Utilizacao", label: "Empresa Utilização" },
+  { key: "csv_Dt_Cancelamento", field: "Dt_Cancelamento", label: "Cancelamento", isDate: true },
+] as const;
+
+const CSV_COLUMNS = RAW_CSV_COLUMNS as readonly CsvColumn[];
+type CsvColumnKey = typeof RAW_CSV_COLUMNS[number]["key"];
+
+type UpdatedDetail = {
+  row: number;
+  id: string;
+  cpf?: string | null;
+  nome?: string | null;
+  tipo?: string | null;
+  matchBy: 'CPF' | 'NOME_DTNASC';
+  changed: Array<{ scope: 'core' | 'operadora'; field: string; before: any; after: any }>;
+};
+
+type UploadSummary = {
+  totalLinhas: number;
+  processados: number;
+  criados: number;
+  atualizados: number;
+  rejeitados: number;
+  atualizadosPorCpf: number;
+  atualizadosPorNomeData: number;
+  duplicadosNoArquivo: { cpf: string; ocorrencias: number }[];
+  porMotivo?: { motivo: string; count: number }[];
+  porTipo?: {
+    titulares: { criados: number; atualizados: number };
+    dependentes: { criados: number; atualizados: number };
+  };
 };
 
 type UploadResult = {
   ok: boolean;
-  summary: {
-    totalLinhas: number;
-    processados: number;
-    criados: number;
-    atualizados: number;
-    rejeitados: number;
-    porMotivo?: { motivo: string; count: number }[];
-    porTipo?: {
-      titulares: { criados: number; atualizados: number };
-      dependentes: { criados: number; atualizados: number };
-    };
-  };
-  // amostra dos erros do último upload (pode vir vazio)
-  errors: any[];
+  runId?: string;
+  summary: UploadSummary;
+  errors: Array<{ row: number; motivo: string; dados?: any }>;
+  updatedDetails: UpdatedDetail[];
+  duplicatesInFile: { cpf: string; rows: number[] }[];
 };
+
+/* ===================== Colunas ===================== */
+
 type ColumnKey =
   | "select" | "nomeCompleto" | "cpf" | "tipo"
-  | "dataEntrada" | "dataNascimento" | "idade" | "faixaEtaria"
+  | "dataEntrada" | "dataNascimento" | "idade" | "faixaEtaria" | "sexo"
   | "plano" | "centroCusto" | "matricula" | "carteirinha"
-  | "valorMensalidade" | "estado" | "contrato" | "sexo"
+  | "valorMensalidade" | "estado" | "contrato"
   | "titular" | "regimeCobranca" | "motivoMovimento" | "observacoes"
-  | "status" | "comentario" | "actions";
+  | "status" | "dataSaida" | "comentario" | "actions"
+  | CsvColumnKey;
 
-// ✅ Agrupamento de colunas (sem mudanças de estrutura)
-const ALL_COLUMNS: { key: ColumnKey; label: string; default?: boolean; category?: string; }[] = [
+const ALL_COLUMNS: { key: ColumnKey; label: string; default?: boolean; category?: string }[] = [
   { key: "select", label: "", default: true },
+
   { key: "nomeCompleto", label: "Nome", default: true, category: "Dados Principais" },
   { key: "cpf", label: "CPF", default: true, category: "Dados Principais" },
   { key: "tipo", label: "Tipo", default: true, category: "Dados Principais" },
   { key: "status", label: "Status", default: true, category: "Dados Principais" },
   { key: "actions", label: "Ações", default: true, category: "Dados Principais" },
 
-  { key: "plano", label: "Plano", default: true, category: "Detalhes do Beneficiário" },
-  { key: "faixaEtaria", label: "Faixa Etária", default: true, category: "Detalhes do Beneficiário" },
-  { key: "idade", label: "Idade", default: true, category: "Detalhes do Beneficiário" },
   { key: "sexo", label: "Sexo", default: false, category: "Detalhes do Beneficiário" },
+  { key: "idade", label: "Idade", default: true, category: "Detalhes do Beneficiário" },
   { key: "dataNascimento", label: "Nascimento", default: false, category: "Detalhes do Beneficiário" },
-  { key: "dataEntrada", label: "Vigência (Entrada)", default: false, category: "Detalhes do Beneficiário" },
+  { key: "faixaEtaria", label: "Faixa Etária", default: true, category: "Detalhes do Beneficiário" },
   { key: "titular", label: "Titular", default: false, category: "Detalhes do Beneficiário" },
-  { key: "estado", label: "UF", default: false, category: "Detalhes do Beneficiário" },
-  { key: "contrato", label: "Contrato", default: false, category: "Detalhes do Beneficiário" },
-  { key: "matricula", label: "Matrícula", default: false, category: "Detalhes do Beneficiário" },
-  { key: "carteirinha", label: "Carteirinha", default: false, category: "Detalhes do Beneficiário" },
-  { key: "centroCusto", label: "Centro de Custo", default: false, category: "Detalhes do Beneficiário" },
-  { key: "comentario", label: "Observação/Ação", default: false, category: "Detalhes do Beneficiário" },
+
+  { key: "dataEntrada", label: "Vigência (Entrada)", default: false, category: "Plano" },
+  { key: "plano", label: "Plano", default: true, category: "Plano" },
+  { key: "centroCusto", label: "Centro de Custo", default: false, category: "Plano" },
+  { key: "matricula", label: "Matrícula", default: false, category: "Plano" },
+  { key: "carteirinha", label: "Carteirinha", default: false, category: "Plano" },
+  { key: "estado", label: "UF", default: false, category: "Plano" },
+  { key: "contrato", label: "Contrato", default: false, category: "Plano" },
+
+  { key: "dataSaida", label: "Data de Saída", default: false, category: "Status & Movimento" },
+  { key: "regimeCobranca", label: "Regime Cobrança", default: false, category: "Status & Movimento" },
+  { key: "motivoMovimento", label: "Motivo Movimento", default: false, category: "Status & Movimento" },
 
   { key: "valorMensalidade", label: "Mensalidade", default: true, category: "Dados Financeiros" },
-  { key: "regimeCobranca", label: "Regime Cobrança", default: false, category: "Dados Financeiros" },
-  { key: "motivoMovimento", label: "Motivo Movimento", default: false, category: "Dados Financeiros" },
   { key: "observacoes", label: "Observações", default: false, category: "Dados Financeiros" },
+
+  { key: "comentario", label: "Observação/Ação", default: false, category: "Anotações" },
+
+  ...CSV_COLUMNS.map((c) => ({
+    key: c.key as ColumnKey,
+    label: c.label,
+    default: false,
+    category: "Operadora/CSV",
+  })),
 ];
 
 const COLS_LS_KEY = "health.beneficiaries.visibleColumns";
 
-// ===== Faixas etárias & alertas =====
+/* ===================== Faixas etárias ===================== */
+
 type AgeBand = { min: number; max: number; label: string };
 const AGE_BANDS: AgeBand[] = [
   { min: 0,  max: 18, label: "0–18" },
@@ -169,7 +306,64 @@ function computeAgeInfo(dobIso?: string | null, ref = new Date()): AgeInfo {
   return { age, band, monthsUntilBandChange: months, nextBandChangeDate: changeDate, alert };
 }
 
-// ===== Ações por linha =====
+/* ===================== Formatadores ===================== */
+
+const BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+const DT = new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" });
+
+const brl = (n: number) => BRL.format(Number.isFinite(n) ? n : 0);
+const formatDate = (d?: string | null) => (d ? DT.format(new Date(d)) : "—");
+
+const formatMaybeDate = (s?: string | null) => {
+  if (!s) return "—";
+  const t = String(s).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(t)) {
+    return DT.format(new Date(t));
+  }
+  return t || "—";
+};
+
+/* ===================== Helpers de domínio ===================== */
+
+const isTitular = (tipo?: string | null) =>
+  !!tipo && (tipo === 'Titular' || tipo.toUpperCase() === 'TITULAR');
+
+const tipoLabel = (tipo?: string | null) => {
+  if (!tipo) return '—';
+  const t = tipo.toUpperCase();
+  if (t === 'TITULAR') return 'Titular';
+  if (t.includes('FILHO')) return 'Filho';
+  if (t.includes('CONJUGE') || t.includes('CÔNJUGE')) return 'Cônjuge';
+  if (t.includes('DEPENDENTE')) return 'Dependente';
+  return tipo;
+};
+
+const statusLabel = (status?: string | null) => {
+  if (!status) return '—';
+  const s = status.toUpperCase();
+  if (s === 'ATIVO') return 'Ativo';
+  if (s === 'INATIVO') return 'Inativo';
+  return status;
+};
+
+function getDisplayCpf(b: BeneficiaryRow): { value: string; origin: 'core' | 'dep' | 'operadora' | 'none' } {
+  const core = (b.cpf ?? '').trim();
+  const op = (b.Cpf ?? '').trim();
+  const dep = (b.Cpf_Dependente ?? '').trim();
+
+  if (isTitular(b.tipo)) {
+    if (core) return { value: core, origin: 'core' };
+    if (op) return { value: op, origin: 'operadora' };
+    return { value: '—', origin: 'none' };
+  }
+  if (core) return { value: core, origin: 'core' };
+  if (dep) return { value: dep, origin: 'dep' };
+  if (op) return { value: op, origin: 'operadora' };
+  return { value: '—', origin: 'none' };
+}
+
+/* ===================== Ações por linha ===================== */
+
 function RowActions({ id, clienteId }: { id: string; clienteId: string }) {
   const router = useRouter();
   const qc = useQueryClient();
@@ -185,8 +379,8 @@ function RowActions({ id, clienteId }: { id: string; clienteId: string }) {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => e.stopPropagation()}>
-            <MoreVertical className="h-4 w-4" /> <span className="sr-only">Ações</span>
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => e.stopPropagation()} aria-label="Ações">
+            <MoreVertical className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44" onClick={(e) => e.stopPropagation()}>
@@ -213,6 +407,239 @@ function RowActions({ id, clienteId }: { id: string; clienteId: string }) {
   );
 }
 
+/* ===================== Modal 3 Abas (revisado) ===================== */
+
+// Normalizador robusto para o payload do upload (evita modal vazio)
+function normalizeUploadResult(x: any): UploadResult | null {
+  if (!x) return null;
+  const r: any = x?.result ?? x?.data ?? x;
+  if (!r || typeof r !== 'object') return null;
+
+  r.summary ??= {
+    totalLinhas: 0,
+    processados: 0,
+    criados: 0,
+    atualizados: 0,
+    rejeitados: 0,
+    atualizadosPorCpf: 0,
+    atualizadosPorNomeData: 0,
+    duplicadosNoArquivo: [],
+  };
+  r.errors = Array.isArray(r.errors) ? r.errors : [];
+  r.updatedDetails = Array.isArray(r.updatedDetails) ? r.updatedDetails : [];
+  r.duplicatesInFile = Array.isArray(r.duplicatesInFile) ? r.duplicatesInFile : [];
+  r.runId = r.runId ?? x?.runId ?? r?.id ?? 'sem-id';
+
+  return r as UploadResult;
+}
+
+function ImportReviewModal({
+  open,
+  onOpenChange,
+  result,
+  onOpenFullPage,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  result: UploadResult | null;
+  onOpenFullPage?: (runId?: string) => void;
+}) {
+  const s = result?.summary;
+  const totalChangedFields = (result?.updatedDetails ?? []).reduce((acc, d) => acc + d.changed.length, 0);
+
+  const copyJson = async (obj: any) => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(obj ?? {}, null, 2));
+      toast.success("Copiado para a área de transferência.");
+    } catch {
+      toast.error("Não foi possível copiar.");
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[95vw] sm:max-w-[1100px] max-h-[85vh] overflow-hidden p-0 rounded-xl">
+        {!result ? (
+          <div className="p-6">
+            <DialogHeader className="p-0">
+              <DialogTitle>Erros e Evidências de Importação</DialogTitle>
+              <DialogDescription>Importe um arquivo para visualizar o resumo.</DialogDescription>
+            </DialogHeader>
+            <div className="mt-4 text-sm text-muted-foreground">
+              Nenhum resultado de importação disponível nesta sessão.
+            </div>
+          </div>
+        ) : (
+          // Um ÚNICO Tabs root envolvendo triggers (sticky) + conteúdos (rolável)
+          <Tabs defaultValue="updated" className="h-full">
+            {/* Header sticky */}
+            <div className="sticky top-0 z-10 border-b bg-background">
+              <div className="px-5 pt-5">
+                <DialogHeader className="p-0">
+                  <DialogTitle>Erros e Evidências de Importação</DialogTitle>
+                  <DialogDescription>Visualize o que foi criado/atualizado, duplicidades e erros rejeitados.</DialogDescription>
+                </DialogHeader>
+                {result.runId && onOpenFullPage && (
+                  <div className="mt-2">
+                    <Button variant="outline" size="sm" onClick={() => onOpenFullPage(result.runId)}>
+                      Abrir página completa
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {/* Cards de resumo */}
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 px-5 pb-4">
+                <Card><CardContent className="pt-4"><div className="text-xs text-muted-foreground">Total linhas</div><div className="text-xl font-semibold">{s?.totalLinhas ?? 0}</div></CardContent></Card>
+                <Card><CardContent className="pt-4"><div className="text-xs text-muted-foreground">Processados</div><div className="text-xl font-semibold">{s?.processados ?? 0}</div></CardContent></Card>
+                <Card><CardContent className="pt-4"><div className="text-xs text-muted-foreground">Criados</div><div className="text-xl font-semibold text-emerald-600">{s?.criados ?? 0}</div></CardContent></Card>
+                <Card><CardContent className="pt-4"><div className="text-xs text-muted-foreground">Atualizados</div><div className="text-xl font-semibold text-blue-600">{s?.atualizados ?? 0}</div></CardContent></Card>
+                <Card><CardContent className="pt-4"><div className="text-xs text-muted-foreground">Rejeitados</div><div className="text-xl font-semibold text-red-600">{s?.rejeitados ?? 0}</div></CardContent></Card>
+              </div>
+
+              {/* Abas (gatilhos) */}
+              <div className="px-5 pb-3">
+                <TabsList className="grid grid-cols-3 w-full">
+                  <TabsTrigger value="updated">
+                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                    Atualizados ({s?.atualizados ?? 0}){totalChangedFields ? <span className="ml-2 text-xs text-muted-foreground">• {totalChangedFields} alterações</span> : null}
+                  </TabsTrigger>
+                  <TabsTrigger value="dups">
+                    <ClipboardList className="h-4 w-4 mr-2" />
+                    Duplicidades ({s?.duplicadosNoArquivo?.length ?? 0})
+                  </TabsTrigger>
+                  <TabsTrigger value="errors">
+                    <AlertTriangle className="h-4 w-4 mr-2" />
+                    Erros ({result?.errors?.length ?? 0})
+                  </TabsTrigger>
+                </TabsList>
+              </div>
+            </div>
+
+            {/* Conteúdo rolável */}
+            <div className="px-5 pb-5 max-h-[70vh] overflow-auto">
+              {/* ATUALIZADOS */}
+              <TabsContent value="updated" className="mt-4">
+                <div className="flex flex-wrap gap-3 mb-3 text-sm text-muted-foreground">
+                  <span>Por CPF: <b>{s?.atualizadosPorCpf ?? 0}</b></span>
+                  <span>Por Nome+Dt.Nasc: <b>{s?.atualizadosPorNomeData ?? 0}</b></span>
+                  <Button variant="outline" size="sm" onClick={() => copyJson(result?.updatedDetails ?? [])}><Copy className="h-3.5 w-3.5 mr-2" />Copiar JSON</Button>
+                </div>
+                <div className="rounded-lg border overflow-auto">
+                  <Table>
+                    <TableHeader className="sticky top-0 z-10 bg-background">
+                      <TableRow>
+                        <TableHead># Linha</TableHead>
+                        <TableHead>Beneficiário</TableHead>
+                        <TableHead>CPF</TableHead>
+                        <TableHead>Match</TableHead>
+                        <TableHead>Alterações</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(result?.updatedDetails ?? []).map((u) => (
+                        <TableRow key={`${u.id}-${u.row}`}>
+                          <TableCell>{u.row}</TableCell>
+                          <TableCell className="font-medium">{u.nome ?? "—"}</TableCell>
+                          <TableCell>{u.cpf ?? "—"}</TableCell>
+                          <TableCell>{u.matchBy === 'CPF' ? 'CPF' : 'Nome + Data Nasc.'}</TableCell>
+                          <TableCell>
+                            {u.changed.length === 0 ? (
+                              <span className="text-muted-foreground">—</span>
+                            ) : (
+                              <div className="space-y-1">
+                                {u.changed.map((c, idx) => (
+                                  <div key={idx} className="text-xs">
+                                    <span className="px-1 py-0.5 rounded bg-muted mr-2">{c.scope}</span>
+                                    <b>{c.field}</b>: <span className="line-through text-muted-foreground">{String(c.before ?? '—')}</span> → <span>{String(c.after ?? '—')}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {(result?.updatedDetails?.length ?? 0) === 0 && (
+                        <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">Nenhum registro atualizado.</TableCell></TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </TabsContent>
+
+              {/* DUPLICIDADES */}
+              <TabsContent value="dups" className="mt-4">
+                <div className="flex items-center gap-3 mb-3 text-sm text-muted-foreground">
+                  <span>CPF repetido no arquivo indica linhas que podem ter sido mescladas em um único update.</span>
+                  <Button variant="outline" size="sm" onClick={() => copyJson(result?.duplicatesInFile ?? [])}><Copy className="h-3.5 w-3.5 mr-2" />Copiar JSON</Button>
+                </div>
+                <div className="rounded-lg border overflow-auto">
+                  <Table>
+                    <TableHeader className="sticky top-0 z-10 bg-background">
+                      <TableRow>
+                        <TableHead>CPF</TableHead>
+                        <TableHead>Ocorrências</TableHead>
+                        <TableHead>Linhas do arquivo</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(result?.duplicatesInFile ?? []).map((d) => (
+                        <TableRow key={d.cpf}>
+                          <TableCell className="font-medium">{d.cpf}</TableCell>
+                          <TableCell>{d.rows.length}</TableCell>
+                          <TableCell>{d.rows.join(', ')}</TableCell>
+                        </TableRow>
+                      ))}
+                      {(result?.duplicatesInFile?.length ?? 0) === 0 && (
+                        <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground">Nenhuma duplicidade encontrada no arquivo.</TableCell></TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </TabsContent>
+
+              {/* ERROS */}
+              <TabsContent value="errors" className="mt-4">
+                <div className="flex items-center gap-3 mb-3 text-sm text-muted-foreground">
+                  <span>Linhas rejeitadas durante a importação.</span>
+                  <Button variant="outline" size="sm" onClick={() => copyJson(result?.errors ?? [])}><Copy className="h-3.5 w-3.5 mr-2" />Copiar JSON</Button>
+                </div>
+                <div className="rounded-lg border overflow-auto">
+                  <Table>
+                    <TableHeader className="sticky top-0 z-10 bg-background">
+                      <TableRow>
+                        <TableHead># Linha</TableHead>
+                        <TableHead>Motivo</TableHead>
+                        <TableHead>Dados (resumo)</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(result?.errors ?? []).map((e, i) => (
+                        <TableRow key={`${e.row}-${i}`}>
+                          <TableCell>{e.row}</TableCell>
+                          <TableCell className="text-red-600">{e.motivo}</TableCell>
+                          <TableCell className="max-w-[520px] truncate" title={JSON.stringify(e.dados ?? {})}>
+                            {e.dados ? JSON.stringify(e.dados).slice(0, 120) + (JSON.stringify(e.dados).length > 120 ? '…' : '') : '—'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {(result?.errors?.length ?? 0) === 0 && (
+                        <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground">Sem erros para exibir.</TableCell></TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </TabsContent>
+            </div>
+          </Tabs>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ===================== Página ===================== */
+
 export default function BeneficiariesPage() {
   return (
     <Suspense fallback={<div className="p-4"><Skeleton className="h-6 w-40 mb-3" /><Skeleton className="h-96 w-full" /></div>}>
@@ -221,7 +648,8 @@ export default function BeneficiariesPage() {
   );
 }
 
-// ===== Normalização de filtros para o backend =====
+/* ===================== filtros URL → backend ===================== */
+
 const normalizeTipo = (v: string | null): string | undefined => {
   if (!v) return undefined;
   const s = v.trim().toLowerCase();
@@ -247,17 +675,15 @@ function BeneficiariesPageInner() {
   const searchParams = useSearchParams();
   const qc = useQueryClient();
 
-  // MODAL de erros
-// MODAL de erros
-const [errorsOpen, setErrorsOpen] = React.useState(false);
-const [errorDetails, setErrorDetails] = React.useState<any[] | null>(null);
-const [uploadSummary, setUploadSummary] = React.useState<UploadResult["summary"] | null>(null);
-
+  const [reviewOpen, setReviewOpen] = React.useState(false);
+  const [uploadResult, setUploadResult] = React.useState<UploadResult | null>(null);
 
   const search = searchParams.get("search") ?? "";
   const tipoParam = searchParams.get("tipo") ?? "";
   const statusParam = searchParams.get("status") ?? "";
   const [searchText, setSearchText] = React.useState(search);
+
+  React.useEffect(() => { setSearchText(search); }, [search]);
 
   const [visibleCols, setVisibleCols] = React.useState<Set<ColumnKey>>(() => {
     try { const raw = localStorage.getItem(COLS_LS_KEY); if (raw) return new Set(JSON.parse(raw) as ColumnKey[]); } catch {}
@@ -268,46 +694,47 @@ const [uploadSummary, setUploadSummary] = React.useState<UploadResult["summary"]
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-const uploadMutation = useMutation({
-  mutationFn: (formData: FormData) =>
-    apiFetch<UploadResult>(`/clients/${clienteId}/beneficiaries/upload`, {
-      method: 'POST',
-      body: formData,
-    }),
+  const openFullImportPage = React.useCallback((runId?: string) => {
+    if (runId) router.push(`/health/${clienteId}/beneficiaries/imports/${runId}`);
+    else router.push(`/health/${clienteId}/beneficiaries/imports/latest`);
+  }, [clienteId, router]);
 
-  onSuccess: (resp) => {
-    const s = resp.summary;
-    setUploadSummary(s);          // guarda o resumo para o modal
-    setErrorDetails(resp.errors); // guarda a amostra dos erros (pode ser [])
+  const uploadMutation = useMutation({
+    mutationFn: (formData: FormData) =>
+      apiFetch<any>(`/clients/${clienteId}/beneficiaries/upload`, {
+        method: 'POST',
+        body: formData,
+      }),
+    onSuccess: (raw) => {
+      const resp = normalizeUploadResult(raw);
+      setUploadResult(resp);
+      setReviewOpen(true);
 
-    const baseDesc = `Criados: ${s.criados}, Atualizados: ${s.atualizados}.`;
-    const topErros =
-      s.porMotivo && s.porMotivo.length
-        ? s.porMotivo.slice(0, 3).map(e => `${e.motivo}: ${e.count}`).join(' • ')
+      const s = resp?.summary ?? { criados: 0, atualizados: 0, rejeitados: 0, totalLinhas: 0, processados: 0 };
+      const baseDesc = `Criados: ${s.criados}, Atualizados: ${s.atualizados}.`;
+      const topErros = resp?.summary?.porMotivo?.length
+        ? resp.summary.porMotivo.slice(0, 3).map(e => `${e.motivo}: ${e.count}`).join(' • ')
         : '—';
 
-    if (resp.errors?.length > 0 || s.rejeitados > 0) {
-      setErrorsOpen(true); // abre automaticamente quando há erros
-      toast.warning(`Importação concluída com ${s.rejeitados} erro(s).`, {
-        description: `${baseDesc} Top erros: ${topErros}`,
-        duration: 12000,
-        action: { label: 'Ver detalhes', onClick: () => setErrorsOpen(true) },
-      });
-    } else {
-      toast.success('Arquivo processado com sucesso!', {
-        description: baseDesc,
-        duration: 8000,
-        action: { label: 'Ver resumo', onClick: () => setErrorsOpen(true) }, // permite abrir o modal mesmo sem erro
-      });
-    }
+      if ((resp?.errors?.length ?? 0) > 0 || (s.rejeitados ?? 0) > 0) {
+        toast.warning(`Importação concluída com ${s.rejeitados} erro(s).`, {
+          description: `${baseDesc} Top erros: ${topErros}`,
+          duration: 12000,
+          action: { label: 'Ver detalhes', onClick: () => setReviewOpen(true) },
+        });
+      } else {
+        toast.success('Arquivo processado com sucesso!', {
+          description: baseDesc,
+          duration: 8000,
+          action: { label: 'Ver resumo', onClick: () => setReviewOpen(true) },
+        });
+      }
 
-    qc.invalidateQueries({ queryKey: ['beneficiaries'] });
-  },
-
-  onError: (e) =>
-    toast.error('Falha ao importar arquivo.', { description: errorMessage(e) }),
-});
-
+      qc.invalidateQueries({ queryKey: ['beneficiaries'] });
+    },
+    onError: (e) =>
+      toast.error('Falha ao importar arquivo.', { description: errorMessage(e) }),
+  });
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -316,62 +743,68 @@ const uploadMutation = useMutation({
   };
   const handleImportClick = () => { fileInputRef.current?.click(); };
 
-  // ✅ Consulta com filtros normalizados para o backend
+  const queryTipo = normalizeTipo(tipoParam);
+  const queryStatus = normalizeStatus(statusParam);
+
   const { data, isFetching, isError, error, refetch } = useQuery<PageResult<BeneficiaryRow>>({
-    queryKey: ["beneficiaries", { clienteId, search, tipo: normalizeTipo(tipoParam) ?? 'ALL', status: normalizeStatus(statusParam) ?? 'ALL' }],
-    queryFn: async () =>
+    queryKey: ["beneficiaries", { clienteId, search, tipo: queryTipo ?? 'ALL', status: queryStatus ?? 'ALL' }],
+    queryFn: ({ signal }: { signal?: AbortSignal }) =>
       apiFetch<PageResult<BeneficiaryRow>>(`/clients/${clienteId}/beneficiaries`, {
-        query: {
-          search: search || undefined,
-          tipo: normalizeTipo(tipoParam),
-          status: normalizeStatus(statusParam),
-        },
+        query: { search: search || undefined, tipo: queryTipo, status: queryStatus },
+        signal,
       }),
     staleTime: 10_000,
   });
 
-  const items: BeneficiaryRow[] = React.useMemo(() => data?.items ?? [], [data]);
+  const items: BeneficiaryRow[] = React.useMemo(
+    () => (Array.isArray(data?.items) ? data!.items : []),
+    [data]
+  );
 
-  const hierarchicalRows = React.useMemo(() => {
-    if (items.length === 0) return [];
-    const titulares = items
-      .filter((b) => b.tipo === "Titular")
-      .sort((a, b) => a.nomeCompleto.localeCompare(b.nomeCompleto));
-
-    const dependentsMap = items.reduce((acc, b) => {
-      if (b.tipo !== "Titular" && b.titularId) {
+  const hierarchicalRows = React.useMemo<BeneficiaryRow[]>(() => {
+    const list = Array.isArray(items) ? items.slice() : [];
+    if (list.length === 0) return [];
+    const titulares = list
+      .filter((b) => isTitular(b.tipo))
+      .sort((a, b) => a.nomeCompleto.localeCompare(b.nomeCompleto, 'pt-BR'));
+    if (titulares.length === 0) {
+      return list.sort((a, b) => a.nomeCompleto.localeCompare(b.nomeCompleto, 'pt-BR'));
+    }
+    const dependentsMap = list.reduce((acc, b) => {
+      if (!isTitular(b.tipo) && b.titularId) {
         if (!acc[b.titularId]) acc[b.titularId] = [];
         acc[b.titularId].push(b);
       }
       return acc;
     }, {} as Record<string, BeneficiaryRow[]>);
-
     const finalRows: BeneficiaryRow[] = [];
     titulares.forEach((titular) => {
       finalRows.push(titular);
-      const deps = dependentsMap[titular.id] ?? [];
-      deps.sort((a, b) => a.nomeCompleto.localeCompare(b.nomeCompleto));
+      const deps = (dependentsMap[titular.id] ?? []).sort((a, b) =>
+        a.nomeCompleto.localeCompare(b.nomeCompleto, 'pt-BR')
+      );
       finalRows.push(...deps);
     });
     return finalRows;
   }, [items]);
 
-  type AgeInfo = ReturnType<typeof computeAgeInfo>;
   const rowsWithAge = React.useMemo(() => {
+    const list = Array.isArray(hierarchicalRows) ? hierarchicalRows : [];
     const now = new Date();
-    return hierarchicalRows.map((b) => {
+    return list.map((b) => {
       const ai = computeAgeInfo(b.dataNascimento ?? null, now);
       const idade = b.idade ?? ai.age ?? null;
       const bandLabel = b.faixaEtaria ?? (ai.band ? ai.band.label : null);
-      return { ...b, _ai: ai, idade, _bandLabel: bandLabel } as any;
+      return { ...b, _ai: ai, idade, _bandLabel: bandLabel } as const;
     });
   }, [hierarchicalRows]);
 
   const stats = React.useMemo(() => {
-    const totalBeneficiarios = items.length;
-    const totalTitulares = items.filter((b) => b.tipo === "Titular").length;
-    const totalDependentes = items.filter((b) => b.tipo !== "Titular").length;
-    const totalMensalidades = items.reduce((acc, b) => acc + (b.valorMensalidade ?? 0), 0);
+    const list = Array.isArray(items) ? items : [];
+    const totalBeneficiarios = list.length;
+    const totalTitulares = list.filter((b) => isTitular(b.tipo)).length;
+    const totalDependentes = totalBeneficiarios - totalTitulares;
+    const totalMensalidades = list.reduce((acc, b) => acc + (b.valorMensalidade ?? 0), 0);
     return { totalBeneficiarios, totalTitulares, totalDependentes, totalMensalidades };
   }, [items]);
 
@@ -389,13 +822,23 @@ const uploadMutation = useMutation({
     onError: (e: unknown) => toast.error("Falha ao remover.", { description: errorMessage(e) }),
   });
 
-  const pushParams = (updates: Record<string, string | undefined>) => {
+  const pushParams = React.useCallback((updates: Record<string, string | undefined>) => {
     const p = new URLSearchParams(searchParams.toString());
-    Object.entries(updates).forEach(([k, v]) => { v ? p.set(k, v) : p.delete(k); });
-    router.push(`/health/${clienteId}/beneficiaries?${p.toString()}`);
-  };
+    let changed = false;
+    Object.entries(updates).forEach(([k, v]) => {
+      const current = p.get(k) ?? undefined;
+      if (v === undefined) {
+        if (current !== undefined) { p.delete(k); changed = true; }
+      } else {
+        if (current !== v) { p.set(k, v); changed = true; }
+      }
+    });
+    if (changed) router.push(`/health/${clienteId}/beneficiaries?${p.toString()}`);
+  }, [clienteId, router, searchParams]);
+
   const onSubmitSearch = (e: React.FormEvent<HTMLFormElement>) => { e.preventDefault(); pushParams({ search: searchText || undefined }); };
 
+  const [visibleColsState] = React.useState(ALL_COLUMNS);
   const isVisible = (key: ColumnKey) => visibleCols.has(key);
   const toggleCol = (key: ColumnKey) => {
     setVisibleCols((prev) => {
@@ -422,18 +865,14 @@ const uploadMutation = useMutation({
     setSelected((prev) => { const next = new Set(prev); if (checked) next.add(id); else next.delete(id); return next; });
   };
 
-  const brl = (n: number) => n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-  const formatDate = (d?: string | null) => d ? new Date(d).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : "—";
-  
-  // Categorias de colunas para o menu
   const columnCategories = React.useMemo(() => {
-    return ALL_COLUMNS.reduce((acc, col) => {
+    return visibleColsState.reduce((acc, col) => {
       const category = col.category || "Outros";
       if (!acc[category]) acc[category] = [];
       acc[category].push(col);
       return acc;
-    }, {} as Record<string, typeof ALL_COLUMNS>);
-  }, []);
+    }, {} as Record<string, { key: ColumnKey; label: string; default?: boolean; category?: string }[]>);
+  }, [visibleColsState]);
 
   return (
     <SidebarProvider>
@@ -459,18 +898,17 @@ const uploadMutation = useMutation({
               </div>
               <Button type="submit" variant="secondary" size="sm">Buscar</Button>
               {search && (
-                <Button type="button" variant="ghost" size="icon" onClick={() => { setSearchText(""); pushParams({ search: undefined }); }}>
-                  <X className="h-4 w-4" /><span className="sr-only">Limpar</span>
+                <Button type="button" variant="ghost" size="icon" onClick={() => { setSearchText(""); pushParams({ search: undefined }); }} aria-label="Limpar busca">
+                  <X className="h-4 w-4" />
                 </Button>
               )}
             </form>
 
-            {/* ✅ Filtros (valores compatíveis com o backend) */}
             <Select
               value={normalizeTipo(tipoParam) ?? "ALL"}
               onValueChange={(v) => pushParams({ tipo: v === "ALL" ? undefined : v })}
             >
-              <SelectTrigger className="w-[140px]">
+              <SelectTrigger className="w-[160px]">
                 <SelectValue placeholder="Tipo" />
               </SelectTrigger>
               <SelectContent>
@@ -486,7 +924,7 @@ const uploadMutation = useMutation({
               value={normalizeStatus(statusParam) ?? "ALL"}
               onValueChange={(v) => pushParams({ status: v === "ALL" ? undefined : v })}
             >
-              <SelectTrigger className="w-[140px]">
+              <SelectTrigger className="w-[160px]">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
@@ -498,7 +936,7 @@ const uploadMutation = useMutation({
 
             <AlertDialog open={bulkOpen} onOpenChange={setBulkOpen}>
               <AlertDialogTrigger asChild>
-                <Button type="button" variant="outline" size="sm" disabled={selected.size === 0}>Excluir ({selected.size})</Button>
+                <Button type="button" variant="outline" size="sm" disabled={selected.size === 0} aria-busy={deleteMany.isPending}>Excluir ({selected.size})</Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
@@ -514,30 +952,45 @@ const uploadMutation = useMutation({
               </AlertDialogContent>
             </AlertDialog>
 
-            {/* Botão de upload */}
-            <Button variant="outline" onClick={handleImportClick} disabled={uploadMutation.isPending}>
+            <Button variant="outline" onClick={handleImportClick} disabled={uploadMutation.isPending} aria-busy={uploadMutation.isPending}>
               {uploadMutation.isPending ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processando...</>) : (<><Upload className="mr-2 h-4 w-4" /> Importar</>)}
             </Button>
 
-            {/* ➕ Botão para reabrir o modal a qualquer momento */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              className="hidden"
+              accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
+            />
+
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setErrorsOpen(true)}
-              disabled={uploadMutation.isPending}
+              onClick={() => setReviewOpen(true)}
+              disabled={uploadMutation.isPending || !uploadResult}
+              title={!uploadResult ? 'Importe um arquivo para ver o resumo' : undefined}
             >
-              Ver erros de importação
-              {Array.isArray(errorDetails) && errorDetails.length > 0 ? (
-                <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs">
-                  {errorDetails.length}
-                </span>
+              Resumo rápido (modal)
+              {uploadResult?.errors?.length ? (
+                <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs">{uploadResult.errors.length}</span>
               ) : null}
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => openFullImportPage(uploadResult?.runId)}
+              disabled={uploadMutation.isPending || !uploadResult?.runId}
+              title="Abrir página completa de evidências de importação"
+            >
+              Ver evidências (página)
             </Button>
 
             <Button asChild><Link href={`/health/${clienteId}/beneficiaries/new`}><PlusCircle className="mr-2 h-4 w-4" /> Novo</Link></Button>
 
             <DropdownMenu>
-              <DropdownMenuTrigger asChild><Button variant="outline" size="sm"><SlidersHorizontal className="mr-2 h-4 w-4" />Colunas</Button></DropdownMenuTrigger>
+              <DropdownMenuTrigger asChild><Button variant="outline" size="sm"><SlidersHorizontal className="mr-2 h-4" />Colunas</Button></DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-64 max-h-[60vh] overflow-auto">
                 {Object.entries(columnCategories).map(([category, cols]) => (
                   <React.Fragment key={category}>
@@ -547,9 +1000,9 @@ const uploadMutation = useMutation({
                         <DropdownMenuSeparator />
                       </>
                     )}
-                    {cols.map((c) => (
+                    {(cols as { key: ColumnKey; label: string }[]).map((c) => (
                       <DropdownMenuCheckboxItem key={c.key} checked={visibleCols.has(c.key)} onCheckedChange={() => toggleCol(c.key)} disabled={c.key === "select" || c.key === "actions"}>
-                        {c.label || c.key}
+                        {c.label || (c.key as string)}
                       </DropdownMenuCheckboxItem>
                     ))}
                     <DropdownMenuSeparator />
@@ -560,22 +1013,13 @@ const uploadMutation = useMutation({
           </div>
         </header>
 
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleFileChange}
-          className="hidden"
-          accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
+        {/* Modal de revisão */}
+        <ImportReviewModal
+          open={reviewOpen}
+          onOpenChange={setReviewOpen}
+          result={uploadResult}
+          onOpenFullPage={openFullImportPage}
         />
-
-        {/* MODAL de erros de importação */}
-          <ImportErrorsModal
-            open={errorsOpen}
-            onOpenChange={setErrorsOpen}
-            clientId={clienteId}
-            initialErrors={errorDetails ?? []}
-            summary={uploadSummary}
-          />
 
         <div className="flex flex-1 flex-col gap-6 p-4 pt-0">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -635,48 +1079,66 @@ const uploadMutation = useMutation({
                 <TooltipProvider>
                   <div className="overflow-x-auto rounded-lg border">
                     <Table>
-                      <TableHeader>
+                      <TableHeader className="sticky top-0 bg-background z-10">
                         <TableRow>
                           {isVisible("select") && <TableHead className="w-10"><Checkbox checked={allSelected} onCheckedChange={(v) => toggleSelectAll(Boolean(v))} /></TableHead>}
                           {isVisible("nomeCompleto") && <TableHead>Nome</TableHead>}
                           {isVisible("cpf") && <TableHead>CPF</TableHead>}
                           {isVisible("tipo") && <TableHead>Tipo</TableHead>}
-                          {isVisible("dataEntrada") && <TableHead>Vigência</TableHead>}
-                          {isVisible("dataNascimento") && <TableHead>Nascimento</TableHead>}
+                          {isVisible("status") && <TableHead>Status</TableHead>}
+
+                          {isVisible("sexo") && <TableHead>Sexo</TableHead>}
                           {isVisible("idade") && <TableHead>Idade</TableHead>}
+                          {isVisible("dataNascimento") && <TableHead>Nascimento</TableHead>}
                           {isVisible("faixaEtaria") && <TableHead>Faixa Etária</TableHead>}
+
+                          {isVisible("dataEntrada") && <TableHead>Vigência</TableHead>}
                           {isVisible("plano") && <TableHead>Plano</TableHead>}
                           {isVisible("centroCusto") && <TableHead>Centro de Custo</TableHead>}
                           {isVisible("matricula") && <TableHead>Matrícula</TableHead>}
                           {isVisible("carteirinha") && <TableHead>Carteirinha</TableHead>}
-                          {isVisible("valorMensalidade") && <TableHead>Mensalidade</TableHead>}
                           {isVisible("estado") && <TableHead>UF</TableHead>}
                           {isVisible("contrato") && <TableHead>Contrato</TableHead>}
-                          {isVisible("sexo") && <TableHead>Sexo</TableHead>}
-                          {isVisible("titular") && <TableHead>Titular</TableHead>}
+
+                          {isVisible("dataSaida") && <TableHead>Saída</TableHead>}
                           {isVisible("regimeCobranca") && <TableHead>Regime Cobrança</TableHead>}
                           {isVisible("motivoMovimento") && <TableHead>Motivo Movimento</TableHead>}
+
+                          {isVisible("valorMensalidade") && <TableHead>Mensalidade</TableHead>}
                           {isVisible("observacoes") && <TableHead>Observações</TableHead>}
-                          {isVisible("status") && <TableHead>Status</TableHead>}
+
+                          {isVisible("titular") && <TableHead>Titular</TableHead>}
                           {isVisible("comentario") && <TableHead>Observação/Ação</TableHead>}
+
+                          {CSV_COLUMNS.map((c) =>
+                            isVisible(c.key as ColumnKey) ? (
+                              <TableHead key={c.key}>{c.label}</TableHead>
+                            ) : null
+                          )}
+
                           {isVisible("actions") && <TableHead className="text-right">Ações</TableHead>}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {rowsWithAge.map((b: any) => {
-                          const ai: AgeInfo = b._ai;
+                        {rowsWithAge.map((b) => {
+                          const ai = (b as any)._ai as AgeInfo;
                           const bg = rowBgByAlert(ai.alert);
                           const showTooltip = ai.alert === "high" || ai.alert === "moderate";
                           const tooltipMsg =
                             ai.monthsUntilBandChange != null && ai.monthsUntilBandChange >= 0
-                              ? `Muda de faixa em ${ai.monthsUntilBandChange} ${ai.monthsUntilBandChange === 1 ? "mês" : "meses"}${ai.nextBandChangeDate ? ` (${ai.nextBandChangeDate.toLocaleDateString("pt-BR")})` : ""}`
+                              ? `Muda de faixa em ${ai.monthsUntilBandChange} ${ai.monthsUntilBandChange === 1 ? "mês" : "meses"}${ai.nextBandChangeDate ? ` (${DT.format(ai.nextBandChangeDate)})` : ""}`
                               : "Sem mudança de faixa prevista";
-                          const isDependente = b.tipo !== "Titular";
+                          const dependente = !isTitular(b.tipo);
+                          const cpfDisplay = getDisplayCpf(b);
+
                           return (
                             <TableRow
                               key={b.id}
                               onClick={() => router.push(`/health/${clienteId}/beneficiaries/${b.id}`)}
                               className={`${bg} cursor-pointer`}
+                              tabIndex={0}
+                              role="button"
+                              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); router.push(`/health/${clienteId}/beneficiaries/${b.id}`); } }}
                             >
                               {isVisible("select") && (
                                 <TableCell onClick={(e) => e.stopPropagation()}>
@@ -684,15 +1146,28 @@ const uploadMutation = useMutation({
                                 </TableCell>
                               )}
                               {isVisible("nomeCompleto") && (
-                                <TableCell className={`font-medium ${isDependente ? "pl-10" : ""}`}>
-                                  {isDependente && "↳ "}
+                                <TableCell className={`font-medium ${dependente ? "pl-10" : ""}`}>
+                                  {dependente && "↳ "}
                                   {b.nomeCompleto}
                                 </TableCell>
                               )}
-                              {isVisible("cpf") && <TableCell>{b.cpf ?? "—"}</TableCell>}
-                              {isVisible("tipo") && <TableCell>{b.tipo}</TableCell>}
-                              {isVisible("dataEntrada") && <TableCell>{formatDate(b.dataEntrada)}</TableCell>}
-                              {isVisible("dataNascimento") && <TableCell>{formatDate(b.dataNascimento)}</TableCell>}
+                              {isVisible("cpf") && (
+                                <TableCell>
+                                  <div className="flex items-center gap-2">
+                                    <span>{cpfDisplay.value}</span>
+                                    {cpfDisplay.origin === 'dep' && (
+                                      <span className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground">dep</span>
+                                    )}
+                                    {cpfDisplay.origin === 'operadora' && (
+                                      <span className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground" title="CPF vindo do layout/operadora">op</span>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              )}
+                              {isVisible("tipo") && <TableCell>{tipoLabel(b.tipo)}</TableCell>}
+                              {isVisible("status") && <TableCell>{statusLabel(b.status)}</TableCell>}
+
+                              {isVisible("sexo") && <TableCell>{b.sexo ?? "—"}</TableCell>}
                               {isVisible("idade") && (
                                 <TableCell>
                                   {showTooltip ? (
@@ -711,21 +1186,34 @@ const uploadMutation = useMutation({
                                   )}
                                 </TableCell>
                               )}
-                              {isVisible("faixaEtaria") && <TableCell>{b._bandLabel ?? "—"}</TableCell>}
+                              {isVisible("dataNascimento") && <TableCell>{formatMaybeDate(b.dataNascimento)}</TableCell>}
+                              {isVisible("faixaEtaria") && <TableCell>{(b as any)._bandLabel ?? "—"}</TableCell>}
+
+                              {isVisible("dataEntrada") && <TableCell>{formatDate(b.dataEntrada)}</TableCell>}
                               {isVisible("plano") && <TableCell>{b.plano ?? "—"}</TableCell>}
                               {isVisible("centroCusto") && <TableCell>{b.centroCusto ?? "—"}</TableCell>}
                               {isVisible("matricula") && <TableCell>{b.matricula ?? "—"}</TableCell>}
                               {isVisible("carteirinha") && <TableCell>{b.carteirinha ?? "—"}</TableCell>}
-                              {isVisible("valorMensalidade") && <TableCell>{b.valorMensalidade != null ? brl(b.valorMensalidade) : "—"}</TableCell>}
                               {isVisible("estado") && <TableCell>{b.estado ?? "—"}</TableCell>}
                               {isVisible("contrato") && <TableCell>{b.contrato ?? "—"}</TableCell>}
-                              {isVisible("sexo") && <TableCell>{b.sexo ?? "—"}</TableCell>}
-                              {isVisible("titular") && <TableCell>{b.titularNome ?? "—"}</TableCell>}
+
+                              {isVisible("dataSaida") && <TableCell>{formatDate(b.dataSaida)}</TableCell>}
                               {isVisible("regimeCobranca") && <TableCell>{b.regimeCobranca ?? "—"}</TableCell>}
                               {isVisible("motivoMovimento") && <TableCell>{b.motivoMovimento ?? "—"}</TableCell>}
+
+                              {isVisible("valorMensalidade") && <TableCell>{b.valorMensalidade != null ? brl(b.valorMensalidade) : "—"}</TableCell>}
                               {isVisible("observacoes") && <TableCell>{b.observacoes ?? "—"}</TableCell>}
-                              {isVisible("status") && <TableCell>{b.status}</TableCell>}
+
+                              {isVisible("titular") && <TableCell>{b.titularNome ?? "—"}</TableCell>}
                               {isVisible("comentario") && <TableCell>{b.comentario ?? "—"}</TableCell>}
+
+                              {CSV_COLUMNS.map((c) => {
+                                if (!isVisible(c.key as ColumnKey)) return null;
+                                const raw = (b as any)[c.field] as string | null | undefined;
+                                const val = c.isDate ? formatMaybeDate(raw) : (raw ?? "—");
+                                return <TableCell key={c.key}>{val || "—"}</TableCell>;
+                              })}
+
                               {isVisible("actions") && (
                                 <TableCell onClick={(e) => e.stopPropagation()} className="text-right">
                                   <RowActions id={b.id} clienteId={clienteId} />

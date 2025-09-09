@@ -1,348 +1,325 @@
 'use client';
 
 import * as React from 'react';
-import { useMemo, useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  AlertDialog as Dialog,
-  AlertDialogContent as DialogContent,
-  AlertDialogDescription as DialogDescription,
-  AlertDialogHeader as DialogHeader,
-  AlertDialogTitle as DialogTitle,
-} from '@/components/ui/alert-dialog';
-import { toast } from 'sonner';
-import { Download, RefreshCw, Trash2, Copy, Search } from 'lucide-react';
-import { useImportErrors } from './useImportErrors';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import { apiFetch } from '@/lib/api';
+import { errorMessage } from '@/lib/errors';
 
-/* ======================= Tipos ======================= */
-export type ImportSummary = {
-  totalLinhas: number;
-  processados: number;
-  criados: number;
-  atualizados: number;
-  rejeitados: number;
+type UploadSummary = {
+  totalLinhas: number; processados: number; criados: number; atualizados: number; rejeitados: number;
   porMotivo?: { motivo: string; count: number }[];
-  porTipo?: {
-    titulares: { criados: number; atualizados: number };
-    dependentes: { criados: number; atualizados: number };
-  };
+  porTipo?: { titulares: { criados: number; atualizados: number }; dependentes: { criados: number; atualizados: number } };
 };
 
-export type LocalError = {
-  line?: number;
-  message?: string;
-  data?: any;
-  createdAt?: string; // opcional
+type Diff = { scope: 'core' | 'operadora'; field: string; before: any; after: any };
+type UpdatedByCpfItem = {
+  cpf?: string | null;
+  nome?: string | null;
+  beneficiarioId?: string;
+  ocorrencias: number;
+  changesCount: number;
+  criticalChangesCount: number;
+  fields: Array<{ field: string; scope: 'core' | 'operadora' }>;
+  diffs: Diff[];
+  fileLines: number[];
+  matchBy: 'CPF' | 'Nome+Dt.Nasc';
 };
 
-type Tab = 'latest' | 'history';
+type ImportReport = {
+  ok: boolean;
+  summary: UploadSummary;
+  updated: { byCpf: UpdatedByCpfItem[]; aggregates: { byField: { field: string; count: number; scope: 'core' | 'operadora' }[]; byMatch: { rule: 'CPF' | 'Nome+Dt.Nasc'; count: number }[]; criticalOnly: { field: string; count: number }[] } };
+  duplicates: { byCpf: Array<{ cpf: string; ocorrencias: number; fileLines: number[] }> };
+  errors: Array<{ row: number; motivo: string; dados?: any }>;
+};
 
-type Props = {
+function Pill({label, scope}:{label:string; scope:'core'|'operadora'}) {
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs
+      ${scope === 'core' ? 'bg-blue-50 text-blue-700' : 'bg-violet-50 text-violet-700'}`}>
+      {label}
+    </span>
+  );
+}
+
+function Stat({title, value}:{title:string; value:React.ReactNode}) {
+  return (
+    <Card><CardHeader className="py-3"><CardTitle className="text-xs text-muted-foreground">{title}</CardTitle></CardHeader>
+    <CardContent className="pt-0"><div className="text-2xl font-semibold">{value}</div></CardContent></Card>
+  );
+}
+
+export function ImportErrorsModal({
+  open, onOpenChange, clientId, initialErrors, summary,
+}: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   clientId: string;
-  /** Erros retornados IMEDIATAMENTE pelo upload (lado cliente) */
-  initialErrors?: LocalError[];
-  /** Resumo opcional do último upload */
-  summary?: ImportSummary | null; // <-- ADICIONADO
-};
+  initialErrors: any[];
+  summary: UploadSummary | null;
+}) {
+  const [report, setReport] = React.useState<ImportReport | null>(null);
+  const [loading, setLoading] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
 
-/* ======================= Utils ======================= */
-function fmtDate(d?: string | Date | null) {
-  if (!d) return '—';
-  const dt = typeof d === 'string' ? new Date(d) : d;
-  if (isNaN(dt.getTime())) return '—';
-  return dt.toLocaleString('pt-BR');
-}
-
-function downloadBlob(filename: string, blob: Blob) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function jsonToCsv(rows: any[]): string {
-  if (!rows.length) return '';
-  const headers = Object.keys(rows[0]);
-  const esc = (v: any) => {
-    if (v == null) return '';
-    const s = typeof v === 'string' ? v : JSON.stringify(v);
-    const needs = /[",\n;]/.test(s);
-    return needs ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  const head = headers.map(esc).join(';');
-  const body = rows.map(r => headers.map(h => esc(r[h])).join(';')).join('\n');
-  return `${head}\n${body}`;
-}
-
-/* ======================= Componente ======================= */
-export function ImportErrorsModal({
-  open,
-  onOpenChange,
-  clientId,
-  initialErrors = [],
-  summary = null,
-}: Props) {
-  const [tab, setTab] = useState<Tab>('latest');
-  const [queryText, setQueryText] = useState('');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-
-  // Hook que busca no servidor (histórico)
-  const {
-    isLoading,
-    latest,
-    history,
-    refetch,
-    clearAll,
-    exportCsvPayload,
-  } = useImportErrors({ clientId, query: queryText, tab });
-
-  // Mapeia os erros locais (imediatos do upload) para o mesmo shape do servidor
-  const mappedInitial = useMemo(() => {
-    return (initialErrors || []).map((e, idx) => ({
-      id: `local-${idx}`,
-      clientId,
-      linha: e.line ?? null,
-      motivo: e.message ?? 'Erro de validação',
-      dados: e.data ?? {},
-      createdAt: e.createdAt ?? new Date().toISOString(),
-    }));
-  }, [initialErrors, clientId]);
-
-  // Lista ativa por aba:
-  const list = useMemo(() => {
-    if (tab === 'latest') {
-      if (mappedInitial.length > 0) return mappedInitial;
-      return latest ?? [];
-    }
-    return history ?? [];
-  }, [tab, mappedInitial, latest, history]);
-
-  // Seleção segura
-  useEffect(() => {
+  React.useEffect(() => {
     if (!open) return;
-    if (list.length > 0) {
-      const found = selectedId ? list.find(x => x.id === selectedId) : undefined;
-      setSelectedId(found ? found.id : list[0].id);
-    } else {
-      setSelectedId(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, list]);
+    setLoading(true);
+    apiFetch<ImportReport>(`/clients/${clientId}/beneficiaries/import-report/last`)
+      .then((r) => { setReport(r); setErr(null); })
+      .catch((e) => setErr(errorMessage(e)))
+      .finally(() => setLoading(false));
+  }, [open, clientId]);
 
-  const selected = useMemo(
-    () => (selectedId ? list.find((x) => x.id === selectedId) ?? null : null),
-    [list, selectedId]
-  );
-
-  const handleRefresh = async () => {
-    await refetch();
-    toast.success('Atualizado.');
+  const effective = report ?? {
+    ok: true,
+    summary: summary ?? { totalLinhas: 0, processados: 0, criados: 0, atualizados: 0, rejeitados: 0 },
+    updated: { byCpf: [], aggregates: { byField: [], byMatch: [], criticalOnly: [] } },
+    duplicates: { byCpf: [] },
+    errors: initialErrors ?? [],
   };
 
-  const handleClear = async () => {
-    try {
-      await clearAll();
-      setSelectedId(null);
-      toast.success('Histórico limpo.');
-    } catch (e: any) {
-      toast.error('Falha ao limpar histórico', { description: e?.message ?? String(e) });
-    }
-  };
+  // ---------------- UI: Atualizados (por CPF) ----------------
+  const [query, setQuery] = React.useState('');
+  const [scope, setScope] = React.useState<'all'|'core'|'operadora'>('all');
+  const [criticalOnly, setCriticalOnly] = React.useState(false);
 
-  const handleExport = () => {
-    if (tab === 'latest' && mappedInitial.length > 0) {
-      const rows = mappedInitial.map(r => ({
-        id: r.id,
-        clientId: r.clientId,
-        linha: r.linha ?? '',
-        motivo: r.motivo,
-        dados: JSON.stringify(r.dados),
-        createdAt: r.createdAt,
-      }));
-      if (!rows.length) return toast.info('Nada para exportar.');
-      const csv = jsonToCsv(rows);
-      return downloadBlob(
-        `import-errors-latest-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.csv`,
-        new Blob([csv], { type: 'text/csv;charset=utf-8' }),
-      );
-    }
+  const CRITICAL = new Set([
+    'nomeCompleto','tipo','status','dataEntrada','dataNascimento','valorMensalidade',
+    'plano','matricula','carteirinha','titularId'
+  ]);
 
-    const rows = exportCsvPayload(tab);
-    if (!rows.length) {
-      toast.info('Nada para exportar.');
-      return;
-    }
-    const csv = jsonToCsv(rows);
-    downloadBlob(
-      `import-errors-${tab}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.csv`,
-      new Blob([csv], { type: 'text/csv;charset=utf-8' })
-    );
-  };
+  const updatedFiltered = React.useMemo(() => {
+    return effective.updated.byCpf.filter(r => {
+      const q = query.trim().toLowerCase();
+      const hitsQuery = !q || (r.cpf ?? '').includes(q) || (r.nome ?? '').toLowerCase().includes(q);
+      const hitsScope = scope === 'all' || r.diffs.some(d => d.scope === scope);
+      const hitsCritical = !criticalOnly || r.diffs.some(d => CRITICAL.has(d.field));
+      return hitsQuery && hitsScope && hitsCritical;
+    });
+  }, [effective.updated.byCpf, query, scope, criticalOnly]);
 
-  const copyJson = async () => {
-    if (!selected) return;
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(selected.dados, null, 2));
-      toast.success('Copiado!');
-    } catch {
-      toast.error('Não foi possível copiar.');
-    }
-  };
+  const [openRows, setOpenRows] = React.useState<Record<string, boolean>>({});
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="p-0 sm:max-w-5xl">
-        <DialogHeader className="px-6 pt-6">
-          <DialogTitle>Erros de importação</DialogTitle>
-          <DialogDescription>
-            Visualize e exporte as linhas que falharam durante a importação de beneficiários.
-          </DialogDescription>
+      <DialogContent className="max-w-[1100px]">
+        <DialogHeader>
+          <DialogTitle>Erros & Evidências de Importação</DialogTitle>
+          <DialogDescription>Visualize o que foi criado/atualizado, duplicidades no arquivo e erros rejeitados.</DialogDescription>
         </DialogHeader>
 
-        {/* Resumo (quando disponível) */}
-        {summary && (
-          <div className="px-6 pb-3 text-xs text-muted-foreground">
-            <div className="flex flex-wrap gap-x-4 gap-y-1">
-              <span>Total linhas: <b>{summary.totalLinhas}</b></span>
-              <span>Processados: <b>{summary.processados}</b></span>
-              <span>Criados: <b>{summary.criados}</b></span>
-              <span>Atualizados: <b>{summary.atualizados}</b></span>
-              <span>Rejeitados: <b>{summary.rejeitados}</b></span>
-            </div>
-            {summary.porMotivo && summary.porMotivo.length > 0 && (
+        {/* Summary cards */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+          <Stat title="Total linhas" value={effective.summary.totalLinhas} />
+          <Stat title="Processados" value={effective.summary.processados} />
+          <Stat title="Criados" value={effective.summary.criados} />
+          <Stat title="Atualizados" value={effective.summary.atualizados} />
+          <Stat title="Rejeitados" value={effective.summary.rejeitados} />
+        </div>
+
+        {loading ? (
+          <div className="text-sm text-muted-foreground">Carregando…</div>
+        ) : err ? (
+          <div className="text-sm text-destructive">{err}</div>
+        ) : (
+          <Tabs defaultValue="updated">
+            <TabsList className="grid grid-cols-3 w-full">
+              <TabsTrigger value="updated">Atualizados ({effective.summary.atualizados})</TabsTrigger>
+              <TabsTrigger value="dups">Duplicidades ({effective.duplicates.byCpf.length})</TabsTrigger>
+              <TabsTrigger value="errors">Erros ({effective.summary.rejeitados})</TabsTrigger>
+            </TabsList>
+
+            {/* Atualizados */}
+            <TabsContent value="updated">
+              <div className="grid md:grid-cols-3 gap-3 mb-3">
+                <Card>
+                  <CardHeader className="py-3"><CardTitle className="text-xs text-muted-foreground">Top campos alterados</CardTitle></CardHeader>
+                  <CardContent className="pt-1 flex flex-wrap gap-2">
+                    {effective.updated.aggregates.byField.slice(0, 10).map((f, i) => (
+                      <Pill key={i} scope={f.scope} label={`${f.field} (${f.count})`} />
+                    ))}
+                    {!effective.updated.aggregates.byField.length && <span className="text-xs text-muted-foreground">—</span>}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="py-3"><CardTitle className="text-xs text-muted-foreground">Por regra de match</CardTitle></CardHeader>
+                  <CardContent className="pt-1 text-sm text-muted-foreground">
+                    {effective.updated.aggregates.byMatch.map((m, i) => (
+                      <div key={i}>{m.rule}: <span className="font-medium text-foreground">{m.count}</span></div>
+                    ))}
+                    {!effective.updated.aggregates.byMatch.length && <div>—</div>}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="py-3"><CardTitle className="text-xs text-muted-foreground">Críticos</CardTitle></CardHeader>
+                  <CardContent className="pt-1 flex flex-wrap gap-2">
+                    {effective.updated.aggregates.criticalOnly.slice(0, 8).map((c, i) => (
+                      <span key={i} className="text-xs rounded-md bg-amber-50 text-amber-700 px-2 py-0.5">{c.field} ({c.count})</span>
+                    ))}
+                    {!effective.updated.aggregates.criticalOnly.length && <span className="text-xs text-muted-foreground">—</span>}
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="flex gap-2 items-center mb-2">
+                <Input placeholder="Buscar CPF ou Nome…" value={query} onChange={(e)=>setQuery(e.target.value)} className="w-[260px]" />
+                <Select value={scope} onValueChange={(v)=>setScope(v as any)}>
+                  <SelectTrigger className="w-[180px]"><SelectValue placeholder="Escopo" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos os campos</SelectItem>
+                    <SelectItem value="core">Somente core</SelectItem>
+                    <SelectItem value="operadora">Somente operadora</SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="flex items-center gap-2">
+                  <Checkbox id="crit" checked={criticalOnly} onCheckedChange={(v)=>setCriticalOnly(Boolean(v))} />
+                  <label htmlFor="crit" className="text-sm text-muted-foreground">Somente críticos</label>
+                </div>
+                <div className="ml-auto">
+                  <Button
+                    variant="outline"
+                    onClick={() => navigator.clipboard.writeText(JSON.stringify(updatedFiltered, null, 2))}
+                  >
+                    Copiar JSON
+                  </Button>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>CPF</TableHead>
+                      <TableHead>Beneficiário</TableHead>
+                      <TableHead>Ocorrências</TableHead>
+                      <TableHead>Alterações</TableHead>
+                      <TableHead>Campos</TableHead>
+                      <TableHead>Linhas do arquivo</TableHead>
+                      <TableHead>Match</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {updatedFiltered.map((r, idx) => {
+                      const id = r.beneficiarioId ?? `${r.cpf}-${idx}`;
+                      const isOpen = !!openRows[id];
+                      const chips = r.fields.slice(0, 5);
+                      return (
+                        <React.Fragment key={id}>
+                          <TableRow className="cursor-pointer" onClick={() => setOpenRows(s => ({...s, [id]: !isOpen}))}>
+                            <TableCell>{r.cpf ?? '—'}</TableCell>
+                            <TableCell className="font-medium">{r.nome ?? '—'}</TableCell>
+                            <TableCell>{r.ocorrencias}</TableCell>
+                            <TableCell>{r.changesCount}{r.criticalChangesCount>0 && <span className="ml-2 text-xs text-amber-600">({r.criticalChangesCount} críticos)</span>}</TableCell>
+                            <TableCell className="space-x-1 whitespace-nowrap">
+                              {chips.map((f, i)=> <Pill key={i} label={f.field} scope={f.scope} />)}
+                              {r.fields.length>chips.length && <span className="text-xs text-muted-foreground">+{r.fields.length - chips.length}</span>}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">{r.fileLines.join(', ')}</TableCell>
+                            <TableCell>{r.matchBy}</TableCell>
+                          </TableRow>
+                          {isOpen && (
+                            <TableRow className="bg-muted/40">
+                              <TableCell colSpan={7}>
+                                <div className="grid md:grid-cols-2 gap-3">
+                                  {r.diffs.map((d, i)=>(
+                                    <div key={i} className="rounded-md border p-2 text-sm bg-background">
+                                      <div className="mb-1"><Pill label={d.field} scope={d.scope} /></div>
+                                      <div className="grid grid-cols-2 gap-2">
+                                        <div className="truncate text-muted-foreground"><span className="font-medium">De:</span> {String(d.before ?? '—')}</div>
+                                        <div className="truncate"><span className="font-medium">Para:</span> {String(d.after ?? '—')}</div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                  {!r.diffs.length && <div className="text-sm text-muted-foreground">Sem diffs.</div>}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                    {!updatedFiltered.length && (
+                      <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground">Sem atualizações a exibir.</TableCell></TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </TabsContent>
+
+            {/* Duplicidades */}
+            <TabsContent value="dups">
+              <div className="text-xs text-muted-foreground mb-2">
+                CPF repetido no arquivo indica linhas que podem ter sido **mescladas** em um único update.
+              </div>
+              <div className="overflow-x-auto rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>CPF</TableHead>
+                      <TableHead>Ocorrências</TableHead>
+                      <TableHead>Linhas do arquivo</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {effective.duplicates.byCpf.map((d, i)=>(
+                      <TableRow key={i}>
+                        <TableCell>{d.cpf}</TableCell>
+                        <TableCell>{d.ocorrencias}</TableCell>
+                        <TableCell className="text-muted-foreground">{d.fileLines.join(', ')}</TableCell>
+                      </TableRow>
+                    ))}
+                    {!effective.duplicates.byCpf.length && (
+                      <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground">Sem duplicidades no arquivo.</TableCell></TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
               <div className="mt-2">
-                Top erros:&nbsp;
-                {summary.porMotivo.slice(0, 3).map((e, i) => (
-                  <span key={i} className="inline-block mr-2">
-                    {e.motivo}: <b>{e.count}</b>
-                  </span>
-                ))}
+                <Button variant="outline" onClick={()=>navigator.clipboard.writeText(JSON.stringify(effective.duplicates.byCpf, null, 2))}>Copiar JSON</Button>
               </div>
-            )}
-          </div>
+            </TabsContent>
+
+            {/* Erros */}
+            <TabsContent value="errors">
+              <div className="overflow-x-auto rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead># Linha</TableHead>
+                      <TableHead>Motivo</TableHead>
+                      <TableHead>Dados (JSON)</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {effective.errors.map((e, i)=>(
+                      <TableRow key={i}>
+                        <TableCell>{e.row}</TableCell>
+                        <TableCell className="text-red-600">{e.motivo}</TableCell>
+                        <TableCell>
+                          <pre className="text-xs whitespace-pre-wrap max-h-[160px] overflow-auto bg-muted/40 p-2 rounded">{JSON.stringify(e.dados ?? {}, null, 2)}</pre>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {!effective.errors.length && (
+                      <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground">Sem erros para exibir.</TableCell></TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="mt-2 flex gap-2">
+                <Button variant="outline" onClick={()=>navigator.clipboard.writeText(JSON.stringify(effective.errors, null, 2))}>Copiar JSON</Button>
+              </div>
+            </TabsContent>
+          </Tabs>
         )}
-
-        {/* Toolbar */}
-        <div className="ml-auto flex items-center gap-2 px-6 pb-4">
-          <div className="flex gap-1 mr-auto">
-            <Button
-              variant={tab === 'latest' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setTab('latest')}
-            >
-              Último upload
-            </Button>
-            <Button
-              variant={tab === 'history' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setTab('history')}
-            >
-              Histórico (servidor)
-            </Button>
-          </div>
-
-          <div className="relative">
-            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              className="pl-8 w-[240px]"
-              placeholder="Filtrar por texto..."
-              value={queryText}
-              onChange={(e) => setQueryText(e.target.value)}
-            />
-          </div>
-
-          <Button variant="outline" size="sm" onClick={handleRefresh}>
-            <RefreshCw className="mr-2 h-4 w-4" /> Atualizar
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleExport}>
-            <Download className="mr-2 h-4 w-4" /> Exportar CSV
-          </Button>
-          <Button variant="destructive" size="sm" onClick={handleClear}>
-            <Trash2 className="mr-2 h-4 w-4" /> Limpar histórico
-          </Button>
-        </div>
-
-        {/* Corpo */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-t">
-          {/* Lista */}
-          <div className="max-h-[70vh]">
-            <ScrollArea className="h-[70vh]">
-              {isLoading && list.length === 0 ? (
-                <div className="p-6 text-sm text-muted-foreground">Carregando…</div>
-              ) : list.length === 0 ? (
-                <div className="p-6 text-sm text-muted-foreground">Sem erros para exibir.</div>
-              ) : (
-                <ul className="divide-y">
-                  {list.map((row) => {
-                    const active = row.id === selectedId;
-                    return (
-                      <li key={row.id}>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedId(row.id)}
-                          className={`w-full text-left p-4 focus:outline-none ${
-                            active ? 'bg-accent/40' : 'hover:bg-muted/50'
-                          }`}
-                        >
-                          <div className="text-xs text-muted-foreground">
-                            Linha {row.linha ?? '—'}
-                          </div>
-                          <div className="mt-1 text-sm font-medium">{row.motivo}</div>
-                          <div className="mt-1 text-[11px] text-muted-foreground">
-                            {fmtDate(row.createdAt)}
-                          </div>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </ScrollArea>
-          </div>
-
-          {/* Detalhe */}
-          <div className="border-l max-h-[70vh]">
-            <div className="flex items-center justify-between p-4">
-              <div className="text-sm font-medium">Dados (JSON)</div>
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" onClick={copyJson} disabled={!selected}>
-                  <Copy className="mr-2 h-4 w-4" /> Copiar
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    if (!selected) return;
-                    const blob = new Blob(
-                      [JSON.stringify(selected.dados, null, 2)],
-                      { type: 'application/json' }
-                    );
-                    downloadBlob(`erro-linha-${selected.linha ?? 'na'}.json`, blob);
-                  }}
-                  disabled={!selected}
-                >
-                  <Download className="mr-2 h-4 w-4" /> Baixar JSON
-                </Button>
-              </div>
-            </div>
-
-            <ScrollArea className="h-[60vh]">
-              <pre className="px-4 pb-6 text-xs leading-relaxed whitespace-pre-wrap">
-                {selected ? JSON.stringify(selected.dados, null, 2) : '—'}
-              </pre>
-            </ScrollArea>
-          </div>
-        </div>
-
-        <div className="px-6 pb-6 text-[11px] text-muted-foreground">
-          Dica: filtre por “CPF”, “matrícula”, “contrato” ou qualquer trecho do JSON.
-        </div>
       </DialogContent>
     </Dialog>
   );

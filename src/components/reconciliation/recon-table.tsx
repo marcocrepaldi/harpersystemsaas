@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import type { CheckedState } from '@radix-ui/react-checkbox';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Table,
@@ -35,8 +36,26 @@ export function ReconTable<T extends ReconRowWithId>({
   selectedIds: string[];
   onSelectChange: (id: string, isChecked: boolean) => void;
 }) {
-  const allIds = data.map((d) => d.id);
-  const allChecked = allIds.length > 0 && allIds.every((id) => selectedIds.includes(id));
+  // ids visíveis na tabela (após filtros no pai)
+  const allIds = React.useMemo(() => data.map((d) => d.id), [data]);
+
+  const { allChecked, someChecked } = React.useMemo(() => {
+    if (allIds.length === 0) return { allChecked: false, someChecked: false };
+    const all = allIds.every((id) => selectedIds.includes(id));
+    const some = !all && allIds.some((id) => selectedIds.includes(id));
+    return { allChecked: all, someChecked: some };
+  }, [allIds, selectedIds]);
+
+  const headerState: CheckedState = allChecked ? true : someChecked ? 'indeterminate' : false;
+
+  const onToggleAll = (checked: CheckedState) => {
+    const shouldCheckAll = checked === true; // clicar no indeterminate passa a true no Radix
+    if (shouldCheckAll) {
+      allIds.forEach((id) => onSelectChange(id, true));
+    } else {
+      allIds.forEach((id) => onSelectChange(id, false));
+    }
+  };
 
   return (
     <div className="rounded-md border overflow-hidden">
@@ -46,12 +65,9 @@ export function ReconTable<T extends ReconRowWithId>({
             <TableHead className="w-12">
               {data.length > 0 && (
                 <Checkbox
-                  checked={allChecked}
-                  onCheckedChange={(checked) => {
-                    if (checked) allIds.forEach((id) => onSelectChange(id, true));
-                    else allIds.forEach((id) => onSelectChange(id, false));
-                  }}
-                  aria-label="Selecionar todos"
+                  checked={headerState}
+                  onCheckedChange={onToggleAll}
+                  aria-label="Selecionar todos os itens desta página"
                 />
               )}
             </TableHead>
@@ -71,6 +87,7 @@ export function ReconTable<T extends ReconRowWithId>({
             ))}
           </TableRow>
         </TableHeader>
+
         <TableBody>
           {data.length === 0 ? (
             <TableRow>
@@ -93,16 +110,18 @@ export function ReconTable<T extends ReconRowWithId>({
 
               return (
                 <TableRow key={r.id} className={rowClass}>
-                  <TableCell>
+                  <TableCell className="w-12">
                     <Checkbox
                       checked={selectedIds.includes(r.id)}
-                      onCheckedChange={(checked) => onSelectChange(r.id, !!checked)}
+                      onCheckedChange={(checked) => onSelectChange(r.id, checked === true)}
                       aria-label="Selecionar linha"
                     />
                   </TableCell>
+
                   {columns.map((col) => {
                     let cell: any = r[col.key];
                     if (Array.isArray(cell)) cell = cell.join(', ');
+
                     const alignCls =
                       col.align === 'right'
                         ? 'text-right'
@@ -115,8 +134,12 @@ export function ReconTable<T extends ReconRowWithId>({
                         : col.emphasize && variant === 'ok'
                         ? 'font-semibold text-emerald-700'
                         : '';
+
                     return (
-                      <TableCell key={`${r.id}-${col.key}`} className={`${alignCls} ${emphasizeCls}`}>
+                      <TableCell
+                        key={`${r.id}-${col.key}`}
+                        className={`${alignCls} ${emphasizeCls}`}
+                      >
                         {String(cell ?? '—')}
                       </TableCell>
                     );

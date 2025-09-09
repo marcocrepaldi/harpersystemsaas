@@ -1,8 +1,10 @@
 'use client';
 
 import * as React from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 import { Protected } from '@/components/auth/protected';
 import { AppSidebar } from '@/components/app-sidebar';
@@ -10,15 +12,32 @@ import { SiteHeader } from '@/components/site-header';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '@/components/ui/breadcrumb';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
-import { PlusCircle, RefreshCcw } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 import { errorMessage } from '@/lib/errors';
 
@@ -29,28 +48,60 @@ type HealthPlan = {
   isActive: boolean;
 };
 
-export default function PlansListPage() {
-  const [search, setSearch] = React.useState('');
-  const [statusFilter, setStatusFilter] = React.useState<'ALL' | 'ACTIVE'>('ALL');
+export default function PlanDetailPage() {
+  const { planId } = useParams<{ planId: string }>();
+  const router = useRouter();
+  const qc = useQueryClient();
 
-  const { data, isFetching, isError, error, refetch } = useQuery<HealthPlan[]>({
-    queryKey: ['health-plans'],
-    queryFn: () => apiFetch<HealthPlan[]>('/health/plans'),
-    staleTime: 10_000,
+  const { data, isFetching, isError, error } = useQuery<HealthPlan>({
+    queryKey: ['health-plan', planId],
+    queryFn: () => apiFetch<HealthPlan>(`/health/plans/${planId}`),
+    staleTime: 5_000,
   });
 
-  const filtered = React.useMemo(() => {
-    const items = data ?? [];
-    const q = search.trim().toLowerCase();
-    return items.filter(p => {
-      const statusOk = statusFilter === 'ALL' ? true : p.isActive;
-      const textOk =
-        !q ||
-        p.name.toLowerCase().includes(q) ||
-        p.slug.toLowerCase().includes(q);
-      return statusOk && textOk;
-    });
-  }, [data, search, statusFilter]);
+  const [name, setName] = React.useState('');
+  const [isActive, setIsActive] = React.useState<boolean>(true);
+
+  // para saber se houve alteração
+  const isDirty = React.useMemo(() => {
+    if (!data) return false;
+    return data.name !== name || Boolean(data.isActive) !== isActive;
+  }, [data, name, isActive]);
+
+  React.useEffect(() => {
+    if (data) {
+      setName(data.name);
+      setIsActive(Boolean(data.isActive));
+    }
+  }, [data]);
+
+  const updateMut = useMutation({
+    mutationFn: async () =>
+      apiFetch(`/health/plans/${planId}`, {
+        method: 'PATCH',
+        body: { name, isActive },
+      }),
+    onSuccess: () => {
+      toast.success('Plano atualizado.');
+      qc.invalidateQueries({ queryKey: ['health-plan', planId] });
+      qc.invalidateQueries({ queryKey: ['health-plans'] });
+    },
+    onError: (e) =>
+      toast.error('Falha ao atualizar.', { description: errorMessage(e) }),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: async () => apiFetch(`/health/plans/${planId}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      toast.success('Plano excluído.');
+      qc.invalidateQueries({ queryKey: ['health-plans'] });
+      router.push('/health/plans');
+    },
+    onError: (e) =>
+      toast.error('Falha ao excluir.', { description: errorMessage(e) }),
+  });
+
+  const canSave = data && name.trim().length > 2 && isDirty && !updateMut.isPending;
 
   return (
     <Protected>
@@ -67,7 +118,6 @@ export default function PlansListPage() {
           <SiteHeader />
 
           <div className="px-4 pt-2 md:px-6 md:pt-4">
-            {/* Breadcrumb + Ações */}
             <div className="mb-4 flex items-center justify-between">
               <Breadcrumb>
                 <BreadcrumbList>
@@ -76,108 +126,141 @@ export default function PlansListPage() {
                   </BreadcrumbItem>
                   <BreadcrumbSeparator />
                   <BreadcrumbItem>
-                    <BreadcrumbPage>Planos</BreadcrumbPage>
+                    <BreadcrumbLink href="/health/plans">Planos</BreadcrumbLink>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator />
+                  <BreadcrumbItem>
+                    <BreadcrumbPage>Editar plano</BreadcrumbPage>
                   </BreadcrumbItem>
                 </BreadcrumbList>
               </Breadcrumb>
 
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
-                  <RefreshCcw className="mr-2 h-4 w-4" />
-                  Atualizar
-                </Button>
-                <Button asChild size="sm">
-                  <Link href="/health/plans/new">
-                    <PlusCircle className="mr-2 h-4 w-4" />
-                    Novo plano
-                  </Link>
+                <Button variant="outline" asChild>
+                  <Link href="/health/plans">Voltar</Link>
                 </Button>
               </div>
             </div>
 
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base">Planos cadastrados</CardTitle>
-                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <div className="relative w-full sm:w-[320px]">
-                    <Input
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      placeholder="Buscar por nome ou slug..."
-                    />
-                  </div>
-                  <Select value={statusFilter} onValueChange={(v: 'ALL' | 'ACTIVE') => setStatusFilter(v)}>
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder="Status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ALL">Status (Todos)</SelectItem>
-                      <SelectItem value="ACTIVE">Somente ativos</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </CardHeader>
+            {isFetching && !data ? (
+              <div className="space-y-2">
+                <Skeleton className="h-9 w-full" />
+                <Skeleton className="h-24 w-full" />
+              </div>
+            ) : isError ? (
+              <div className="space-y-3">
+                <p className="text-sm text-destructive">Erro ao carregar plano.</p>
+                <p className="text-xs text-muted-foreground break-all">
+                  {errorMessage(error)}
+                </p>
+                <Button variant="outline" onClick={() => location.reload()}>
+                  Recarregar
+                </Button>
+              </div>
+            ) : data ? (
+              <div className="grid gap-6 max-w-3xl">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Identificação</CardTitle>
+                  </CardHeader>
+                  <CardContent className="grid gap-4 md:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label>Slug</Label>
+                      <Input value={data.slug} disabled />
+                      <p className="text-xs text-muted-foreground">
+                        Slug não pode ser alterado.
+                      </p>
+                    </div>
 
-              <CardContent>
-                {isFetching && !data ? (
-                  <div className="space-y-2">
-                    <Skeleton className="h-9 w-full" />
-                    <Skeleton className="h-24 w-full" />
-                  </div>
-                ) : isError ? (
-                  <div className="space-y-3">
-                    <p className="text-sm text-destructive">Erro ao carregar planos.</p>
-                    <p className="text-xs text-muted-foreground break-all">{errorMessage(error)}</p>
-                    <Button variant="outline" size="sm" onClick={() => refetch()}>
-                      Tentar novamente
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto rounded-lg border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Nome</TableHead>
-                          <TableHead>Slug</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead className="text-right">Ações</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filtered.map((p) => (
-                          <TableRow key={p.id}>
-                            <TableCell className="font-medium">{p.name}</TableCell>
-                            <TableCell className="text-muted-foreground">{p.slug}</TableCell>
-                            <TableCell>
-                              {p.isActive ? (
-                                <Badge variant="default">Ativo</Badge>
-                              ) : (
-                                <Badge variant="secondary">Inativo</Badge>
-                              )}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <div className="inline-flex gap-2">
-                                {/* Se quiser detalhar depois: aliases, preços, etc. */}
-                                <Button asChild variant="outline" size="sm">
-                                  <Link href={`/health/plans/${p.id}`}>Ver</Link>
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                        {filtered.length === 0 && (
-                          <TableRow>
-                            <TableCell colSpan={4} className="h-20 text-center text-muted-foreground">
-                              Nenhum plano encontrado.
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                    <div className="grid gap-2">
+                      <Label htmlFor="name">Nome</Label>
+                      <Input
+                        id="name"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        placeholder="Ex.: Plano Ouro"
+                      />
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label>Status</Label>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant={isActive ? 'default' : 'outline'}
+                          onClick={() => setIsActive(true)}
+                          size="sm"
+                        >
+                          Ativo
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={!isActive ? 'default' : 'outline'}
+                          onClick={() => setIsActive(false)}
+                          size="sm"
+                        >
+                          Inativo
+                        </Button>
+                        <Badge
+                          variant={isActive ? 'default' : 'secondary'}
+                          className="ml-2"
+                        >
+                          {isActive ? 'Ativo' : 'Inativo'}
+                        </Badge>
+                      </div>
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <Separator className="my-2" />
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={() => updateMut.mutate()}
+                          disabled={!canSave}
+                        >
+                          {updateMut.isPending ? 'Salvando…' : 'Salvar alterações'}
+                        </Button>
+
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="text-red-600 border-red-200 hover:bg-red-50"
+                              disabled={deleteMut.isPending}
+                            >
+                              {deleteMut.isPending ? 'Excluindo…' : 'Excluir plano'}
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Excluir este plano?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Esta ação é permanente. Relações como aliases, preços
+                                e vínculos com clientes poderão ser removidas.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction
+                                onClick={() => deleteMut.mutate()}
+                                className="bg-red-600 hover:bg-red-700"
+                              >
+                                Confirmar exclusão
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
+                      {!isDirty && (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Nenhuma alteração pendente.
+                        </p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : null}
           </div>
         </SidebarInset>
       </SidebarProvider>

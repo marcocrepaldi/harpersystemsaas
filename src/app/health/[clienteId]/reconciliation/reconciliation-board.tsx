@@ -17,10 +17,17 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
-// Components (novos)
-import { ReconTable, type ColumnDef, type RowVariant } from '@/components/reconciliation/recon-table';
+// Components
+import {
+  ReconTable,
+  type ColumnDef,
+  type RowVariant,
+} from '@/components/reconciliation/recon-table';
 import { StatCard } from '@/components/reconciliation/stat-card';
-import { DistributionPieCard, DivergencesBarCard } from '@/components/reconciliation/recon-charts';
+import {
+  DistributionPieCard,
+  DivergencesBarCard,
+} from '@/components/reconciliation/recon-charts';
 import { ReconFilters } from '@/components/reconciliation/recon-filters';
 import { ReconActions } from '@/components/reconciliation/recon-actions';
 
@@ -28,7 +35,7 @@ import { ReconActions } from '@/components/reconciliation/recon-actions';
 type ReconResp = {
   ok: boolean;
   clientId: string;
-  mesReferencia: string; // YYYY-MM
+  mesReferencia: string; // YYYY-MM-01 (slice(0,7) -> YYYY-MM)
   totals: {
     faturaCount: number;
     faturaSum: string; // BRL
@@ -38,10 +45,24 @@ type ReconResp = {
     mismatched: number;
     duplicates: number;
   };
-  filtersApplied: { tipo?: 'TITULAR' | 'DEPENDENTE'; plano?: string; centro?: string };
+  filtersApplied: {
+    tipo?: 'TITULAR' | 'DEPENDENTE';
+    plano?: string;
+    centro?: string;
+  };
   tabs: {
-    onlyInInvoice: Array<{ id: string; cpf: string; nome: string; valorCobrado: string }>;
-    onlyInRegistry: Array<{ id: string; cpf: string; nome: string; valorMensalidade: string }>;
+    onlyInInvoice: Array<{
+      id: string;
+      cpf: string;
+      nome: string;
+      valorCobrado: string;
+    }>;
+    onlyInRegistry: Array<{
+      id: string;
+      cpf: string;
+      nome: string;
+      valorMensalidade: string;
+    }>;
     mismatched: Array<{
       id: string;
       cpf: string;
@@ -68,7 +89,6 @@ type ReconResp = {
       status: 'OK' | 'DIVERGENTE' | 'DUPLICADO' | 'SOFATURA';
     }>;
   };
-  // opcional: quando existir backend de fechamento
   closure?: {
     status: 'OPEN' | 'CLOSED';
     totalFatura?: string; // BRL
@@ -95,7 +115,8 @@ const parseCurrency = (v: string | number | null | undefined): number => {
     ? Number(raw.replace(/\./g, '').replace(',', '.')) || 0
     : Number(raw) || 0;
 };
-const toBRL = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const toBRL = (n: number) =>
+  n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 // ===================== helpers de mês =====================
 function dateToYm(d?: Date): string {
@@ -109,9 +130,11 @@ function dateToYm(d?: Date): string {
 export default function ReconciliationBoard() {
   const { clienteId } = useParams<{ clienteId: string }>();
   const sp = useSearchParams();
-  const mesParam = sp.get('mes') || '';
 
-  // mês atual como fallback sempre
+  const mesParam = sp.get('mes') || '';
+  const insurerId = sp.get('insurerId') || ''; // vazio = todas
+
+  // mês atual como fallback
   const defaultYm = React.useMemo(() => dateToYm(new Date()), []);
   const [mes, setMes] = React.useState<string>(mesParam || defaultYm);
 
@@ -139,16 +162,25 @@ export default function ReconciliationBoard() {
   }, []);
 
   const [activeTab, setActiveTab] = React.useState<
-    'mismatched' | 'onlyInInvoice' | 'onlyInRegistry' | 'duplicates' | 'okInvoice' | 'allInvoice'
+    | 'mismatched'
+    | 'onlyInInvoice'
+    | 'onlyInRegistry'
+    | 'duplicates'
+    | 'okInvoice'
+    | 'allInvoice'
   >('mismatched');
-  const [exportFormat, setExportFormat] = React.useState<'xlsx' | 'csv'>('xlsx');
+  const [exportFormat, setExportFormat] =
+    React.useState<'xlsx' | 'csv'>('xlsx');
 
   // filtros
-  const [tipo, setTipo] = React.useState<'ALL' | 'TITULAR' | 'DEPENDENTE'>('ALL');
+  const [tipo, setTipo] =
+    React.useState<'ALL' | 'TITULAR' | 'DEPENDENTE'>('ALL');
   const [plano, setPlano] = React.useState<string>('');
   const [centro, setCentro] = React.useState<string>('');
 
-  const [selectedInvoiceIds, setSelectedInvoiceIds] = React.useState<string[]>([]);
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = React.useState<string[]>(
+    [],
+  );
 
   // 🔎 BUSCA LOCAL (debounced)
   const [search, setSearch] = React.useState('');
@@ -160,22 +192,36 @@ export default function ReconciliationBoard() {
 
   React.useEffect(() => {
     setSelectedInvoiceIds([]);
-  }, [activeTab, mes, tipo, plano, centro, debouncedSearch]);
+  }, [activeTab, mes, tipo, plano, centro, debouncedSearch, insurerId]);
 
   const { data: options } = useQuery<OptionsResp>({
     queryKey: ['recon.options', clienteId],
-    queryFn: () => apiFetch<OptionsResp>(`/clients/${clienteId}/reconciliation/options`),
+    queryFn: () =>
+      apiFetch<OptionsResp>(
+        `/clients/${clienteId}/reconciliation/options`,
+      ),
   });
 
   const { data, isLoading, isError, refetch } = useQuery<ReconResp>({
-    queryKey: ['recon.v1', clienteId, mes, tipo, plano, centro],
+    queryKey: [
+      'recon.v1',
+      clienteId,
+      mes,
+      tipo,
+      plano,
+      centro,
+      insurerId || '__ALL__',
+    ],
     queryFn: () => {
       const params = new URLSearchParams();
       params.set('mes', mes);
       if (tipo && tipo !== 'ALL') params.set('tipo', tipo);
       if (plano) params.set('plano', plano);
       if (centro) params.set('centro', centro);
-      return apiFetch<ReconResp>(`/clients/${clienteId}/reconciliation?${params.toString()}`);
+      if (insurerId) params.set('insurerId', insurerId);
+      return apiFetch<ReconResp>(
+        `/clients/${clienteId}/reconciliation?${params.toString()}`,
+      );
     },
   });
 
@@ -218,7 +264,10 @@ export default function ReconciliationBoard() {
     mutationFn: async () => {
       const mesYYYYMM = (data?.mesReferencia || '').slice(0, 7);
       if (!mesYYYYMM) throw new Error('Mês de referência indisponível.');
-      const url = `/clients/${clienteId}/invoices?mes=${mesYYYYMM}`;
+      const p = new URLSearchParams();
+      p.set('mes', mesYYYYMM);
+      if (insurerId) p.set('insurerId', insurerId);
+      const url = `/clients/${clienteId}/invoices?${p.toString()}`;
       return apiFetch<any>(url, { method: 'DELETE' });
     },
     onSuccess: () => {
@@ -234,6 +283,7 @@ export default function ReconciliationBoard() {
 
   const reconcileMutation = useMutation({
     mutationFn: (invoiceIds: string[]) => {
+      // rota antiga não precisa de insurerId; mantemos sem quebrar
       return apiFetch<any>(`/clients/${clienteId}/invoices/reconcile`, {
         method: 'PATCH',
         body: JSON.stringify({ invoiceIds }),
@@ -241,9 +291,10 @@ export default function ReconciliationBoard() {
       });
     },
     onSuccess: (resp) => {
-      toast.success(`${resp?.count ?? resp?.reconciledCount ?? 0} faturas conciliadas.`, {
-        description: 'Os registros foram atualizados no sistema.',
-      });
+      toast.success(
+        `${resp?.count ?? resp?.reconciledCount ?? 0} faturas conciliadas.`,
+        { description: 'Os registros foram atualizados no sistema.' },
+      );
       setSelectedInvoiceIds([]);
       refetch();
     },
@@ -254,20 +305,23 @@ export default function ReconciliationBoard() {
     },
   });
 
-  // 🔒 Fechamento manual do mês (POST /clients/:id/reconciliation/close)
-  // Alinha com CloseReconciliationDTO { mes, valorFaturaDeclarado, observacaoFechamento }
+  // Fechamento manual do mês (POST /clients/:id/reconciliation/close)
   const closeMutation = useMutation({
     mutationFn: async ({ total, notes }: { total: number; notes?: string }) => {
-      const body = {
+      const body: Record<string, any> = {
         mes,
         valorFaturaDeclarado: total,
         observacaoFechamento: notes?.trim() || undefined,
       };
-      return apiFetch<any>(`/clients/${clienteId}/reconciliation/close`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      if (insurerId) body.insurerId = insurerId;
+      return apiFetch<any>(
+        `/clients/${clienteId}/reconciliation/close`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        },
+      );
     },
     onSuccess: () => {
       toast.success('Fechamento registrado com sucesso.');
@@ -283,7 +337,8 @@ export default function ReconciliationBoard() {
   // Charts
   const pieData = React.useMemo(() => {
     if (!data) return [];
-    const { mismatched, duplicates, onlyInInvoice, onlyInRegistry, ativosCount } = data.totals;
+    const { mismatched, duplicates, onlyInInvoice, onlyInRegistry, ativosCount } =
+      data.totals;
     const divergentes = mismatched + onlyInInvoice + onlyInRegistry + duplicates;
     const conformes = Math.max(0, ativosCount - divergentes);
     return [
@@ -314,18 +369,12 @@ export default function ReconciliationBoard() {
     reg: '#8B5CF6',
   };
 
-  const safeList = (arr?: (string | null)[]) =>
-    (arr || []).filter((x): x is string => !!x && x.trim().length > 0);
-
-  const handleSelectChange = React.useCallback(
-    (id: string, isChecked: boolean) => {
-      setSelectedInvoiceIds((prev) => {
-        if (isChecked) return Array.from(new Set([...prev, id]));
-        return prev.filter((_id) => _id !== id);
-      });
-    },
-    [],
-  );
+  const handleSelectChange = React.useCallback((id: string, isChecked: boolean) => {
+    setSelectedInvoiceIds((prev) => {
+      if (isChecked) return Array.from(new Set([...prev, id]));
+      return prev.filter((_id) => _id !== id);
+    });
+  }, []);
 
   // Filtro local por busca
   const filterPredicate = React.useCallback(
@@ -416,7 +465,9 @@ export default function ReconciliationBoard() {
         <CardHeader className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div className="flex items-start gap-3">
             <div>
-              <CardTitle className="flex items-center gap-2">Conciliação da Fatura</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                Conciliação da Fatura
+              </CardTitle>
               {isLoading ? (
                 <div className="mt-2 space-y-1">
                   <Skeleton className="h-4 w-56" />
@@ -425,12 +476,16 @@ export default function ReconciliationBoard() {
               ) : data ? (
                 <div className="text-sm mt-2">
                   <div>
-                    <span className="font-medium">Mês de referência:</span> {data.mesReferencia}
+                    <span className="font-medium">Mês de referência:</span>{' '}
+                    {data.mesReferencia}
                   </div>
                   <div>
-                    <span className="font-medium">Itens importados:</span> {data.totals.faturaCount} —{' '}
-                    <span className="font-medium">Soma:</span> {data.totals.faturaSum} —{' '}
-                    <span className="font-medium">Beneficiários ativos:</span> {data.totals.ativosCount}
+                    <span className="font-medium">Itens importados:</span>{' '}
+                    {data.totals.faturaCount} —{' '}
+                    <span className="font-medium">Soma:</span>{' '}
+                    {data.totals.faturaSum} —{' '}
+                    <span className="font-medium">Beneficiários ativos:</span>{' '}
+                    {data.totals.ativosCount}
                   </div>
                 </div>
               ) : null}
@@ -455,19 +510,24 @@ export default function ReconciliationBoard() {
                 </TooltipTrigger>
                 <TooltipContent side="bottom" align="start" className="space-y-2">
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="h-2 w-2 rounded-full bg-emerald-500" /> <span>Conformes</span>
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" />{' '}
+                    <span>Conformes</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="h-2 w-2 rounded-full bg-red-500" /> <span>Divergentes</span>
+                    <span className="h-2 w-2 rounded-full bg-red-500" />{' '}
+                    <span>Divergentes</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="h-2 w-2 rounded-full bg-amber-500" /> <span>Duplicados</span>
+                    <span className="h-2 w-2 rounded-full bg-amber-500" />{' '}
+                    <span>Duplicados</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="h-2 w-2 rounded-full bg-blue-500" /> <span>Só na fatura</span>
+                    <span className="h-2 w-2 rounded-full bg-blue-500" />{' '}
+                    <span>Só na fatura</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm">
-                    <span className="h-2 w-2 rounded-full bg-violet-500" /> <span>Só no cadastro</span>
+                    <span className="h-2 w-2 rounded-full bg-violet-500" />{' '}
+                    <span>Só no cadastro</span>
                   </div>
                 </TooltipContent>
               </Tooltip>
@@ -499,22 +559,46 @@ export default function ReconciliationBoard() {
               <Skeleton className="h-64 w-full col-span-1 md:col-span-2" />
             </div>
           ) : isError || !data ? (
-            <div className="text-sm text-destructive">Falha ao carregar a conciliação.</div>
+            <div className="text-sm text-destructive">
+              Falha ao carregar a conciliação.
+            </div>
           ) : (
             <>
               {/* KPIs principais */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <StatCard title="Beneficiários (filtrados)" value={data.totals.ativosCount} />
-                <StatCard title="Itens importados" value={data.totals.faturaCount} hint={data.totals.faturaSum} />
-                <StatCard title="Divergentes" value={data.totals.mismatched} />
+                <StatCard
+                  title="Beneficiários (filtrados)"
+                  value={data.totals.ativosCount}
+                />
+                <StatCard
+                  title="Itens importados"
+                  value={data.totals.faturaCount}
+                  hint={data.totals.faturaSum}
+                />
+                <StatCard
+                  title="Divergentes"
+                  value={data.totals.mismatched}
+                />
                 <StatCard title="Duplicados" value={data.totals.duplicates} />
               </div>
 
               {/* Cards financeiros da fatura */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <StatCard title="Fatura (todos)" value={allInvoiceSum} hint={`${tabs.allInvoice.length} itens`} />
-                <StatCard title="Convergentes (OK)" value={okInvoiceSum} hint={`${okRows.length} itens`} />
-                <StatCard title="Só na fatura" value={onlyInInvoiceSum} hint={`${tabs.onlyInInvoice.length} itens`} />
+                <StatCard
+                  title="Fatura (todos)"
+                  value={allInvoiceSum}
+                  hint={`${tabs.allInvoice.length} itens`}
+                />
+                <StatCard
+                  title="Convergentes (OK)"
+                  value={okInvoiceSum}
+                  hint={`${okRows.length} itens`}
+                />
+                <StatCard
+                  title="Só na fatura"
+                  value={onlyInInvoiceSum}
+                  hint={`${tabs.onlyInInvoice.length} itens`}
+                />
               </div>
 
               {/* Barra de ações */}
@@ -530,6 +614,7 @@ export default function ReconciliationBoard() {
                   if (tipo && tipo !== 'ALL') params.set('tipo', tipo);
                   if (plano) params.set('plano', plano);
                   if (centro) params.set('centro', centro);
+                  if (insurerId) params.set('insurerId', insurerId);
                   return `/clients/${clienteId}/reconciliation/export?${params.toString()}`;
                 }}
                 search={search}
@@ -546,7 +631,9 @@ export default function ReconciliationBoard() {
                 canCloseMonth={data.totals.faturaCount > 0}
                 isClosed={isClosed}
                 suggestedTotal={allInvoiceTotal}
-                onConfirmClose={({ total, notes }) => closeMutation.mutate({ total, notes })}
+                onConfirmClose={({ total, notes }) =>
+                  closeMutation.mutate({ total, notes })
+                }
                 closingPending={closeMutation.isPending}
               />
 
@@ -557,19 +644,27 @@ export default function ReconciliationBoard() {
               </div>
 
               {/* Abas + Tabelas */}
-              <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
+              <Tabs
+                value={activeTab}
+                onValueChange={(v) => setActiveTab(v as any)}
+                className="w-full"
+              >
                 <TabsList className="mb-4">
                   <TabsTrigger value="mismatched">
-                    Divergentes ({filteredTabs.mismatched.length}/{data.totals.mismatched})
+                    Divergentes ({filteredTabs.mismatched.length}/
+                    {data.totals.mismatched})
                   </TabsTrigger>
                   <TabsTrigger value="onlyInInvoice">
-                    Só na fatura ({filteredTabs.onlyInInvoice.length}/{data.totals.onlyInInvoice})
+                    Só na fatura ({filteredTabs.onlyInInvoice.length}/
+                    {data.totals.onlyInInvoice})
                   </TabsTrigger>
                   <TabsTrigger value="onlyInRegistry">
-                    Só no cadastro ({filteredTabs.onlyInRegistry.length}/{data.totals.onlyInRegistry})
+                    Só no cadastro ({filteredTabs.onlyInRegistry.length}/
+                    {data.totals.onlyInRegistry})
                   </TabsTrigger>
                   <TabsTrigger value="duplicates">
-                    Duplicados ({filteredTabs.duplicates.length}/{data.totals.duplicates})
+                    Duplicados ({filteredTabs.duplicates.length}/
+                    {data.totals.duplicates})
                   </TabsTrigger>
                   <TabsTrigger value="okInvoice">
                     Convergentes (OK) ({filteredOkRows.length})
