@@ -1,5 +1,4 @@
-// eslint.config.js (Flat Config para Next.js + TypeScript)
-
+// eslint.config.mjs (Flat Config para Next.js + TypeScript)
 import { dirname } from "path";
 import { fileURLToPath } from "url";
 import { FlatCompat } from "@eslint/eslintrc";
@@ -19,14 +18,17 @@ const compat = new FlatCompat({
 });
 
 export default [
+  // Ignorar artefatos de build
+  { ignores: ["node_modules", ".next", "dist", "out", ".turbo", ".vercel"] },
+
   // 🔹 Regras JS base
   js.configs.recommended,
 
-  // 🔹 Suporte TypeScript moderno
+  // 🔹 Suporte TypeScript moderno (com type-check)
   ...tseslint.configs.recommendedTypeChecked,
   ...tseslint.configs.stylisticTypeChecked,
 
-  // 🔹 Plugins
+  // 🔹 Plugins e regras
   {
     plugins: {
       react: reactPlugin,
@@ -34,20 +36,22 @@ export default [
       import: importPlugin,
       tailwindcss: tailwind,
     },
+    files: ["**/*.{js,jsx,ts,tsx}"],
     languageOptions: {
+      parser: tseslint.parser, // garante parser TS no flat config
       parserOptions: {
-        project: "./tsconfig.json", // garante verificação com TS
+        // Se usar o tsconfig.eslint.json, troque aqui
+        project: "./tsconfig.json",
         tsconfigRootDir: __dirname,
+        ecmaVersion: "latest",
+        sourceType: "module",
       },
     },
     settings: {
-      react: {
-        version: "detect",
-      },
+      react: { version: "detect" },
       "import/resolver": {
-        typescript: {
-          project: "./tsconfig.json",
-        },
+        // Para ordenação/validação de imports com paths TS e "@/*"
+        typescript: { project: "./tsconfig.json" }
       },
     },
     rules: {
@@ -56,7 +60,7 @@ export default [
       "no-console": ["warn", { allow: ["warn", "error"] }],
 
       /* --- React --- */
-      "react/jsx-uses-react": "off", // Next 13+ não precisa importar React
+      "react/jsx-uses-react": "off",
       "react/react-in-jsx-scope": "off",
       "react/self-closing-comp": "warn",
 
@@ -68,25 +72,15 @@ export default [
       "import/order": [
         "warn",
         {
-          groups: [
-            "builtin",
-            "external",
-            "internal",
-            ["parent", "sibling", "index"],
-          ],
-          pathGroups: [
-            {
-              pattern: "@/**",
-              group: "internal",
-            },
-          ],
-          "newlines-between": "always",
-        },
+          groups: ["builtin", "external", "internal", ["parent", "sibling", "index"]],
+          pathGroups: [{ pattern: "@/**", group: "internal" }],
+          "newlines-between": "always"
+        }
       ],
 
       /* --- Tailwind --- */
       "tailwindcss/classnames-order": "warn",
-      "tailwindcss/no-custom-classname": "off", // deixar off se usar tokens custom
+      "tailwindcss/no-custom-classname": "off"
     },
   },
 

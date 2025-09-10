@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api";
@@ -12,7 +12,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { Loader2 } from "lucide-react";
 
 /* ======================= Tipos ======================= */
@@ -144,8 +143,8 @@ const CSV_EXTRAS: Array<{ key: CsvExtraKey; label: string; type?: "text" | "date
 
 type CsvExtrasState = Partial<Record<CsvExtraKey, string>>;
 
-/* ======================= Componente ======================= */
-export default function BeneficiaryForm({
+/* ======================= Formulário (não-default) ======================= */
+function BeneficiaryForm({
   mode,
   clienteId,
   beneficiaryId,
@@ -184,7 +183,7 @@ export default function BeneficiaryForm({
     queryFn: () =>
       apiFetch(`/clients/${clienteId}/beneficiaries`, {
         query: { tipo: "TITULAR", all: "true" },
-      }).then((res: any) => res.items as TitularOption[]),
+      }).then((res: any) => (res?.items ?? []) as TitularOption[]),
     enabled: isDependent,
   });
 
@@ -286,7 +285,7 @@ export default function BeneficiaryForm({
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="grid gap-8">
-          {/* ================== Seção: Identificação ================== */}
+          {/* Identificação */}
           <section>
             <h3 className="text-sm font-semibold text-muted-foreground mb-3">Identificação</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -309,9 +308,9 @@ export default function BeneficiaryForm({
               <div>
                 <Label htmlFor="tipo">Tipo *</Label>
                 <Select
-                  value={tipo}
-                  onValueChange={(v: BenefType) => {
-                    setTipo(v);
+                  value={tipo || undefined}
+                  onValueChange={(v) => {
+                    setTipo(v as BenefType);
                     setTitularId("");
                   }}
                 >
@@ -329,13 +328,17 @@ export default function BeneficiaryForm({
               {isDependent && (
                 <div>
                   <Label htmlFor="titular">Vincular ao Titular *</Label>
-                  <Select value={titularId} onValueChange={setTitularId} disabled={isLoadingTitulares}>
+                  <Select
+                    value={titularId || undefined}
+                    onValueChange={(v) => setTitularId(v)}
+                    disabled={isLoadingTitulares}
+                  >
                     <SelectTrigger id="titular">
                       <SelectValue placeholder={isLoadingTitulares ? "Carregando titulares..." : "Selecione..."} />
                     </SelectTrigger>
                     <SelectContent>
-                      {titulares && titulares.length > 0 ? (
-                        titulares.map((t) => (
+                      {(titulares ?? []).length > 0 ? (
+                        (titulares ?? []).map((t) => (
                           <SelectItem key={t.id} value={t.id}>
                             {t.nomeCompleto}
                           </SelectItem>
@@ -350,7 +353,7 @@ export default function BeneficiaryForm({
             </div>
           </section>
 
-          {/* ================== Seção: Dados do Plano ================== */}
+          {/* Dados do Plano */}
           <section>
             <h3 className="text-sm font-semibold text-muted-foreground mb-3">Dados do Plano</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -394,13 +397,13 @@ export default function BeneficiaryForm({
             </div>
           </section>
 
-          {/* ================== Seção: Dados Pessoais ================== */}
+          {/* Dados Pessoais */}
           <section>
             <h3 className="text-sm font-semibold text-muted-foreground mb-3">Dados Pessoais</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <Label htmlFor="sexo">Sexo</Label>
-                <Select value={sexo} onValueChange={(v: "M" | "F") => setSexo(v)}>
+                <Select value={sexo || undefined} onValueChange={(v) => setSexo(v as "M" | "F")}>
                   <SelectTrigger id="sexo">
                     <SelectValue placeholder="Selecione..." />
                   </SelectTrigger>
@@ -418,7 +421,7 @@ export default function BeneficiaryForm({
 
               <div>
                 <Label htmlFor="faixaEtaria">Faixa Etária</Label>
-                <Select value={faixaChoice} onValueChange={setFaixaChoice}>
+                <Select value={faixaChoice} onValueChange={(v) => setFaixaChoice(v)}>
                   <SelectTrigger id="faixaEtaria">
                     <SelectValue placeholder="Selecione..." />
                   </SelectTrigger>
@@ -437,13 +440,15 @@ export default function BeneficiaryForm({
                   </SelectContent>
                 </Select>
                 {faixaChoice === "AUTO" && (
-                  <p className="text-xs text-muted-foreground">Calculada: <span className="font-medium">{computedFaixa}</span></p>
+                  <p className="text-xs text-muted-foreground">
+                    Calculada: <span className="font-medium">{faixaFromAge(ageFromBirth(dataNascimento)) ?? "-"}</span>
+                  </p>
                 )}
               </div>
             </div>
           </section>
 
-          {/* ================== Seção: Dados da Operadora (CSV) ================== */}
+          {/* Dados da Operadora (CSV) */}
           <section>
             <h3 className="text-sm font-semibold text-muted-foreground mb-3">Dados da Operadora (CSV)</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -451,7 +456,9 @@ export default function BeneficiaryForm({
                 <div key={key}>
                   <div className="flex items-center gap-2 mb-1">
                     <Label htmlFor={`csv_${key}`}>{label}</Label>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground">CSV: {key}</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                      CSV: {key}
+                    </span>
                   </div>
                   <Input
                     id={`csv_${key}`}
@@ -467,7 +474,7 @@ export default function BeneficiaryForm({
             </p>
           </section>
 
-          {/* ================== Ações ================== */}
+          {/* Ações */}
           <div className="flex items-center gap-2">
             <Button type="submit" disabled={mutation.isPending}>
               {mutation.isPending ? (
@@ -485,5 +492,20 @@ export default function BeneficiaryForm({
         </form>
       </CardContent>
     </Card>
+  );
+}
+
+/* ======================= Page wrapper (default) ======================= */
+export default function Page() {
+  const { clienteId } = useParams<{ clienteId: string }>();
+
+  return (
+    <div className="p-6">
+      <BeneficiaryForm
+        mode="create"
+        clienteId={clienteId}
+        onSuccessRedirect={`/health/${clienteId}/beneficiaries`}
+      />
+    </div>
   );
 }

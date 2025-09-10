@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -78,17 +79,19 @@ const FIELD_META: Record<keyof BeneficiaryPayload, FieldMeta> = {
 function LabelWithCsv({ htmlFor, meta, required }: { htmlFor: string; meta: FieldMeta; required?: boolean }) {
   return (
     <div className="flex items-center gap-2">
-      <Label htmlFor={htmlFor}>{meta.label} {required ? "*" : null}</Label>
+      <Label htmlFor={htmlFor}>
+        {meta.label} {required ? "*" : null}
+      </Label>
       {meta.csv ? (
-        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground">CSV: {meta.csv}</span>
+        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+          CSV: {meta.csv}
+        </span>
       ) : null}
     </div>
   );
 }
 
-/** ================= Campos CSV extras (todos os que você listou) =================
- * Serão exibidos em "Dados da Operadora (CSV)" e enviados compactados em `observacoes` (JSON).
- */
+/** ================= Campos CSV extras ================= */
 type CsvExtraKey =
   | "Empresa" | "Cpf" | "Usuario" | "Nm_Social" | "Estado_Civil" | "Data_Nascimento" | "Sexo"
   | "Identidade" | "Orgao_Exp" | "Uf_Orgao" | "Uf_Endereco" | "Cidade" | "Tipo_Logradouro"
@@ -187,7 +190,6 @@ function normalizeForForm(iv: Partial<BeneficiaryPayload> | any): Partial<Benefi
 
 /** Concatena os extras CSV em `observacoes` como JSON */
 function mergeObservacoesWithCsvExtras(original: string | undefined | null, extras: CsvExtrasState): string {
-  // remove chaves vazias
   const filled: Record<string, string> = {};
   for (const k of Object.keys(extras) as CsvExtraKey[]) {
     const v = (extras as any)[k];
@@ -197,7 +199,7 @@ function mergeObservacoesWithCsvExtras(original: string | undefined | null, extr
   }
   if (Object.keys(filled).length === 0) return original ?? "";
   const payload = { csvExtras: filled };
-  const prefix = (original && original.trim().length > 0) ? `${original}\n` : "";
+  const prefix = original && original.trim().length > 0 ? `${original}\n` : "";
   return `${prefix}${JSON.stringify(payload)}`;
 }
 
@@ -214,13 +216,14 @@ export default function BeneficiaryForm({ mode, clienteId, beneficiaryId, initia
   React.useEffect(() => {
     if (mode === "edit" && initialValues) {
       setFormData(normalizeForForm(initialValues));
-      // opcional: se quiser parsear JSON anterior de observacoes, podemos tentar aqui
       try {
         const maybe = initialValues?.observacoes && JSON.parse(initialValues.observacoes);
         if (maybe?.csvExtras && typeof maybe.csvExtras === "object") {
           setCsvExtras(maybe.csvExtras as CsvExtrasState);
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
   }, [mode, initialValues]);
 
@@ -228,29 +231,57 @@ export default function BeneficiaryForm({ mode, clienteId, beneficiaryId, initia
     const { name, value, type } = e.target;
     let v: any = value;
     if (name === "cpf") v = onlyDigits(value);
-    if (name === "valorMensalidade") v = value;
     if (type === "date") v = value;
     setFormData((prev) => ({ ...prev, [name]: v }));
   };
 
-  const handleSelectChange = (name: keyof BeneficiaryPayload, value: string) => {
+  function handleSelectChange(name: keyof BeneficiaryPayload, value: string) {
     setFormData((prev) => {
       const next = { ...prev, [name]: value as any };
-      if (name === "tipo") next.titularId = value === "TITULAR" ? undefined : prev.titularId ?? undefined;
-      if (name === "status" && value === "INATIVO" && !prev.dataSaida)
-        next.dataSaida = new Date().toISOString().slice(0, 10);
+
+      if (name === "tipo") {
+        next.titularId = value === "TITULAR" ? undefined : prev.titularId ?? undefined;
+        next.tipo = (value === "TITULAR" || value === "FILHO" || value === "CONJUGE" ? value : "FILHO") as any;
+      }
+
+      if (name === "status") {
+        next.status = (value?.toUpperCase() === "INATIVO" ? "INATIVO" : "ATIVO") as any;
+        if (next.status === "INATIVO" && !prev.dataSaida) {
+          next.dataSaida = new Date().toISOString().slice(0, 10);
+        }
+      }
+
+      if (name === "sexo") {
+        const up = value?.toUpperCase();
+        next.sexo = (up === "M" || up === "F" ? up : undefined) as any;
+      }
+
+      if (name === "regimeCobranca") {
+        const up = value?.toUpperCase();
+        next.regimeCobranca = (up === "MENSAL" || up === "DIARIO" ? up : undefined) as any;
+      }
+
+      if (name === "motivoMovimento") {
+        const up = value?.toUpperCase();
+        next.motivoMovimento = (up === "INCLUSAO" || up === "EXCLUSAO" || up === "ALTERACAO" || up === "NENHUM" ? up : "NENHUM") as any;
+      }
+
       return next;
     });
-  };
+  }
 
   // CSV extras change
   const handleCsvExtraChange = (key: CsvExtraKey, value: string) => {
     setCsvExtras((prev) => ({ ...prev, [key]: value }));
-    // espelhamento opcional para campos principais
+    // espelhamentos úteis
     if (key === "Usuario") setFormData((p) => ({ ...p, nomeCompleto: p.nomeCompleto || value }));
     if (key === "Cpf") setFormData((p) => ({ ...p, cpf: onlyDigits(value) ?? "" }));
     if (key === "Data_Nascimento") setFormData((p) => ({ ...p, dataNascimento: value.slice(0, 10) }));
-    if (key === "Sexo") setFormData((p) => ({ ...p, sexo: (value?.toUpperCase() === "M" || value?.toUpperCase() === "F") ? (value?.toUpperCase() as "M" | "F") : p.sexo }));
+    if (key === "Sexo")
+      setFormData((p) => ({
+        ...p,
+        sexo: (value?.toUpperCase() === "M" || value?.toUpperCase() === "F") ? (value?.toUpperCase() as "M" | "F") : p.sexo,
+      }));
     if (key === "Dt_Admissao") setFormData((p) => ({ ...p, dataEntrada: p.dataEntrada || value.slice(0, 10) }));
     if (key === "Plano") setFormData((p) => ({ ...p, plano: p.plano || value }));
     if (key === "Matricula") setFormData((p) => ({ ...p, matricula: p.matricula || value }));
@@ -262,7 +293,7 @@ export default function BeneficiaryForm({ mode, clienteId, beneficiaryId, initia
     queryKey: ["beneficiaries", { clienteId, tipo: "TITULAR" }],
     queryFn: () =>
       apiFetch(`/clients/${clienteId}/beneficiaries`, { query: { tipo: "TITULAR" } }).then(
-        (res: any) => res.items as TitularOption[]
+        (res: any) => (res?.items ?? []) as TitularOption[]
       ),
     enabled: formData.tipo !== "TITULAR" && !!clienteId,
   });
@@ -299,11 +330,6 @@ export default function BeneficiaryForm({ mode, clienteId, beneficiaryId, initia
 
   const buildPayload = (fd: Partial<BeneficiaryPayload>): Partial<BeneficiaryPayload> => {
     const p: Partial<BeneficiaryPayload> = {};
-    const EDITABLE_KEYS: (keyof BeneficiaryPayload)[] = [
-      "nomeCompleto","cpf","tipo","dataEntrada","dataNascimento","valorMensalidade","titularId",
-      "matricula","carteirinha","sexo","plano","centroCusto","faixaEtaria","estado","contrato",
-      "comentario","status","dataSaida","regimeCobranca","motivoMovimento","observacoes",
-    ];
     for (const k of EDITABLE_KEYS) {
       const v = (fd as any)[k];
       if (v === "" || v === undefined || v === null) continue;
@@ -332,6 +358,10 @@ export default function BeneficiaryForm({ mode, clienteId, beneficiaryId, initia
     }
     if (formData.tipo !== "TITULAR" && !formData.titularId) {
       toast.error("Para FILHO/CONJUGE, é obrigatório selecionar o Titular.");
+      return;
+    }
+    if (formData.dataNascimento && formData.dataEntrada && new Date(formData.dataNascimento) > new Date(formData.dataEntrada)) {
+      toast.error("Data de entrada não pode ser anterior à data de nascimento.");
       return;
     }
     const payload = buildPayload(formData);
@@ -386,7 +416,13 @@ export default function BeneficiaryForm({ mode, clienteId, beneficiaryId, initia
                       <SelectValue placeholder={isLoadingTitulares ? "Carregando..." : "Selecione..."} />
                     </SelectTrigger>
                     <SelectContent>
-                      {titulares?.map((t) => (<SelectItem key={t.id} value={t.id}>{t.nomeCompleto}</SelectItem>))}
+                      {(titulares ?? []).length > 0 ? (
+                        (titulares ?? []).map((t) => (
+                          <SelectItem key={t.id} value={t.id}>{t.nomeCompleto}</SelectItem>
+                        ))
+                      ) : (
+                        <div className="p-2 text-sm text-muted-foreground">Nenhum titular encontrado.</div>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -431,7 +467,7 @@ export default function BeneficiaryForm({ mode, clienteId, beneficiaryId, initia
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <LabelWithCsv htmlFor="sexo" meta={FIELD_META.sexo} />
-                <Select value={formData.sexo ?? undefined} onValueChange={(v: "M" | "F") => handleSelectChange("sexo", v)}>
+                <Select value={formData.sexo ?? undefined} onValueChange={(v) => handleSelectChange("sexo", v)}>
                   <SelectTrigger id="sexo"><SelectValue placeholder="Selecione..." /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="M">Masculino</SelectItem>
@@ -501,16 +537,17 @@ export default function BeneficiaryForm({ mode, clienteId, beneficiaryId, initia
             </div>
           </section>
 
-          {/* ======= NOVA SEÇÃO: Dados da Operadora (CSV) ======= */}
+          {/* ======= Dados da Operadora (CSV) ======= */}
           <section>
             <h4 className="text-sm font-semibold text-muted-foreground mb-3">Dados da Operadora (CSV)</h4>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {CSV_EXTRAS.map(({ key, label, type }) => (
                 <div key={key}>
-                  {/* rótulo sempre mostra o nome amigável + tag do cabeçalho */}
                   <div className="flex items-center gap-2 mb-1">
                     <Label htmlFor={`csv_${key}`}>{label}</Label>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground">CSV: {key}</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                      CSV: {key}
+                    </span>
                   </div>
                   <Input
                     id={`csv_${key}`}
@@ -544,16 +581,40 @@ export default function BeneficiaryForm({ mode, clienteId, beneficiaryId, initia
           {/* Ações */}
           <div className="flex items-center gap-2">
             <Button type="submit" disabled={saveMutation.isPending}>
-              {saveMutation.isPending ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Salvando...</>) : "Salvar"}
+              {saveMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Salvando...
+                </>
+              ) : (
+                "Salvar"
+              )}
             </Button>
 
             {mode === "edit" && (
-              <Button type="button" variant="destructive" onClick={onDelete} disabled={deleteMutation.isPending || saveMutation.isPending}>
-                {deleteMutation.isPending ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Excluindo...</>) : (<><Trash2 className="mr-2 h-4 w-4" /> Excluir</>)}
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={onDelete}
+                disabled={deleteMutation.isPending || saveMutation.isPending}
+              >
+                {deleteMutation.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Excluindo...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="mr-2 h-4 w-4" /> Excluir
+                  </>
+                )}
               </Button>
             )}
 
-            <Button type="button" variant="outline" onClick={() => router.back()} disabled={saveMutation.isPending || deleteMutation.isPending}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => router.back()}
+              disabled={saveMutation.isPending || deleteMutation.isPending}
+            >
               Cancelar
             </Button>
           </div>

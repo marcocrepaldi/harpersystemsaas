@@ -47,8 +47,8 @@ function useDebounced<T>(value: T, delay = 350) {
   return v;
 }
 
-// ---------- página ----------
-export default function InsurersPage(): React.ReactElement {
+// ---------- conteúdo (usa useSearchParams) ----------
+function InsurersPageContent(): React.ReactElement {
   const router = useRouter();
   const searchParams = useSearchParams();
   const qc = useQueryClient();
@@ -292,7 +292,7 @@ export default function InsurersPage(): React.ReactElement {
                         {'>>'}
                       </Button>
 
-                      <div className="ml-auto flex items-center gap-2">
+                      <div className="ml-auto flex items中心 gap-2">
                         <span className="text-sm text-muted-foreground">Por página</span>
                         <Select
                           value={String(currentLimit)}
@@ -367,5 +367,14 @@ export default function InsurersPage(): React.ReactElement {
         </AlertDialogContent>
       </AlertDialog>
     </SidebarProvider>
+  );
+}
+
+// ---------- wrapper com Suspense (default export) ----------
+export default function Page() {
+  return (
+    <React.Suspense fallback={<div className="p-4 text-sm text-muted-foreground">Carregando…</div>}>
+      <InsurersPageContent />
+    </React.Suspense>
   );
 }
