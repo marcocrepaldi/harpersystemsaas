@@ -1,4 +1,4 @@
-// [FRONTEND] app/health/[clienteId]/beneficiaries/page.tsx
+// app/health/[clienteId]/beneficiaries/page.tsx
 'use client';
 
 import * as React from 'react';
@@ -25,7 +25,6 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-// Modal e Tabs
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
@@ -37,10 +36,15 @@ import { MoreVertical, SlidersHorizontal, Search, X, Upload, PlusCircle, Loader2
 
 type PageResult<T> = { items: T[]; page: number; limit: number; total: number };
 
+type CpfStatus = "valid" | "invalid" | "adjusted" | "missing";
+
 type BeneficiaryRow = {
   id: string;
   nomeCompleto: string;
   cpf?: string | null;
+  cpfStatus?: CpfStatus;
+  cpfMessage?: string;
+
   tipo: string;
   dataEntrada: string;
   dataNascimento?: string | null;
@@ -362,6 +366,31 @@ function getDisplayCpf(b: BeneficiaryRow): { value: string; origin: 'core' | 'de
   return { value: '—', origin: 'none' };
 }
 
+/* Badge de status do CPF */
+function CpfBadge({ status, message }: { status?: CpfStatus; message?: string }) {
+  if (!status || status === 'valid') return null;
+  const style = {
+    invalid: 'bg-red-100 text-red-700 border-red-200',
+    adjusted: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+    missing: 'bg-gray-100 text-gray-700 border-gray-200',
+  }[status];
+  const label = {
+    invalid: 'DV inválido',
+    adjusted: 'Ajustado',
+    missing: 'Ausente',
+  }[status];
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className={`ml-2 inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] ${style}`} title={message}>
+          {label}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{message || label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 /* ===================== Ações por linha ===================== */
 
 function RowActions({ id, clienteId }: { id: string; clienteId: string }) {
@@ -409,7 +438,6 @@ function RowActions({ id, clienteId }: { id: string; clienteId: string }) {
 
 /* ===================== Modal 3 Abas (revisado) ===================== */
 
-// Normalizador robusto para o payload do upload (evita modal vazio)
 function normalizeUploadResult(x: any): UploadResult | null {
   if (!x) return null;
   const r: any = x?.result ?? x?.data ?? x;
@@ -470,9 +498,7 @@ function ImportReviewModal({
             </div>
           </div>
         ) : (
-          // Um ÚNICO Tabs root envolvendo triggers (sticky) + conteúdos (rolável)
           <Tabs defaultValue="updated" className="h-full">
-            {/* Header sticky */}
             <div className="sticky top-0 z-10 border-b bg-background">
               <div className="px-5 pt-5">
                 <DialogHeader className="p-0">
@@ -488,7 +514,6 @@ function ImportReviewModal({
                 )}
               </div>
 
-              {/* Cards de resumo */}
               <div className="grid grid-cols-2 md:grid-cols-5 gap-3 px-5 pb-4">
                 <Card><CardContent className="pt-4"><div className="text-xs text-muted-foreground">Total linhas</div><div className="text-xl font-semibold">{s?.totalLinhas ?? 0}</div></CardContent></Card>
                 <Card><CardContent className="pt-4"><div className="text-xs text-muted-foreground">Processados</div><div className="text-xl font-semibold">{s?.processados ?? 0}</div></CardContent></Card>
@@ -497,7 +522,6 @@ function ImportReviewModal({
                 <Card><CardContent className="pt-4"><div className="text-xs text-muted-foreground">Rejeitados</div><div className="text-xl font-semibold text-red-600">{s?.rejeitados ?? 0}</div></CardContent></Card>
               </div>
 
-              {/* Abas (gatilhos) */}
               <div className="px-5 pb-3">
                 <TabsList className="grid grid-cols-3 w-full">
                   <TabsTrigger value="updated">
@@ -516,9 +540,7 @@ function ImportReviewModal({
               </div>
             </div>
 
-            {/* Conteúdo rolável */}
             <div className="px-5 pb-5 max-h-[70vh] overflow-auto">
-              {/* ATUALIZADOS */}
               <TabsContent value="updated" className="mt-4">
                 <div className="flex flex-wrap gap-3 mb-3 text-sm text-muted-foreground">
                   <span>Por CPF: <b>{s?.atualizadosPorCpf ?? 0}</b></span>
@@ -567,7 +589,6 @@ function ImportReviewModal({
                 </div>
               </TabsContent>
 
-              {/* DUPLICIDADES */}
               <TabsContent value="dups" className="mt-4">
                 <div className="flex items-center gap-3 mb-3 text-sm text-muted-foreground">
                   <span>CPF repetido no arquivo indica linhas que podem ter sido mescladas em um único update.</span>
@@ -598,7 +619,6 @@ function ImportReviewModal({
                 </div>
               </TabsContent>
 
-              {/* ERROS */}
               <TabsContent value="errors" className="mt-4">
                 <div className="flex items-center gap-3 mb-3 text-sm text-muted-foreground">
                   <span>Linhas rejeitadas durante a importação.</span>
@@ -987,7 +1007,11 @@ function BeneficiariesPageInner() {
               Ver evidências (página)
             </Button>
 
-            <Button asChild><Link href={`/health/${clienteId}/beneficiaries/new`}><PlusCircle className="mr-2 h-4 w-4" /> Novo</Link></Button>
+            <Button asChild>
+              <Link href={`/health/${clienteId}/beneficiaries/new`}>
+                <PlusCircle className="mr-2 h-4 w-4" /> Novo
+              </Link>
+            </Button>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild><Button variant="outline" size="sm"><SlidersHorizontal className="mr-2 h-4" />Colunas</Button></DropdownMenuTrigger>
@@ -1155,12 +1179,15 @@ function BeneficiariesPageInner() {
                                 <TableCell>
                                   <div className="flex items-center gap-2">
                                     <span>{cpfDisplay.value}</span>
+                                    {/* badge de origem (dep/op) */}
                                     {cpfDisplay.origin === 'dep' && (
                                       <span className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground">dep</span>
                                     )}
                                     {cpfDisplay.origin === 'operadora' && (
                                       <span className="text-[10px] px-1 py-0.5 rounded bg-muted text-muted-foreground" title="CPF vindo do layout/operadora">op</span>
                                     )}
+                                    {/* badge de status (ajustado/inválido/ausente) */}
+                                    <CpfBadge status={b.cpfStatus} message={b.cpfMessage} />
                                   </div>
                                 </TableCell>
                               )}

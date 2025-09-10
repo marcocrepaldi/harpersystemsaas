@@ -16,15 +16,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Loader2 } from "lucide-react";
 
 /* ======================= Tipos ======================= */
+type BenefType = "TITULAR" | "FILHO" | "CONJUGE";
 type BeneficiaryPayload = {
   nomeCompleto: string;
   cpf?: string;
-  tipo: "TITULAR" | "DEPENDENTE";
+  tipo: BenefType;
   dataEntrada: string; // yyyy-mm-dd
   valorMensalidade?: string;
   titularId?: string;
 
-  // novos campos suportados no backend
+  // campos adicionais suportados
   matricula?: string;
   carteirinha?: string;
   sexo?: "M" | "F";
@@ -33,8 +34,7 @@ type BeneficiaryPayload = {
   centroCusto?: string;
   faixaEtaria?: string;
 
-  /** Mantemos o backend intacto: extras do CSV vão compactados aqui em JSON. */
-  observacoes?: string;
+  observacoes?: string; // extras compactados
 };
 
 type Props = {
@@ -56,6 +56,10 @@ const maskCPF = (s: string) => {
     .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
     .replace(/\.(\d{3})(\d)/, ".$1-$2");
 };
+const normMoneyForApi = (v: string) => {
+  if (!v) return "";
+  return String(v).replace(",", ".").trim();
+};
 const ageFromBirth = (iso?: string) => {
   if (!iso) return undefined;
   const d = new Date(iso);
@@ -66,7 +70,7 @@ const ageFromBirth = (iso?: string) => {
   if (m < 0 || (m === 0 && today.getDate() < d.getDate())) age--;
   return age;
 };
-// Faixas comuns no mercado (ajuste se necessário)
+// Faixas comuns
 const faixaFromAge = (age?: number) => {
   if (age == null || age < 0) return undefined;
   if (age <= 18) return "0-18";
@@ -154,7 +158,7 @@ export default function BeneficiaryForm({
   /* ------- Estados do formulário ------- */
   const [nomeCompleto, setNomeCompleto] = React.useState(initialValues?.nomeCompleto ?? "");
   const [cpf, setCpf] = React.useState(initialValues?.cpf ?? "");
-  const [tipo, setTipo] = React.useState<"TITULAR" | "DEPENDENTE" | "">(initialValues?.tipo ?? "");
+  const [tipo, setTipo] = React.useState<BenefType | "">(initialValues?.tipo as BenefType ?? "");
   const [dataEntrada, setDataEntrada] = React.useState(initialValues?.dataEntrada ?? "");
   const [valorMensalidade, setValorMensalidade] = React.useState(initialValues?.valorMensalidade ?? "");
   const [titularId, setTitularId] = React.useState(initialValues?.titularId ?? "");
@@ -172,14 +176,16 @@ export default function BeneficiaryForm({
   /** extras do CSV */
   const [csvExtras, setCsvExtras] = React.useState<CsvExtrasState>({});
 
+  const isDependent = tipo !== "" && tipo !== "TITULAR";
+
   /* ------- Lista de Titulares (quando Dependente) ------- */
   const { data: titulares, isLoading: isLoadingTitulares } = useQuery<TitularOption[]>({
     queryKey: ["beneficiaries", { clienteId, tipo: "TITULAR", all: true }],
     queryFn: () =>
       apiFetch(`/clients/${clienteId}/beneficiaries`, {
-        query: { tipo: "TITULAR", all: true },
+        query: { tipo: "TITULAR", all: "true" },
       }).then((res: any) => res.items as TitularOption[]),
-    enabled: tipo === "DEPENDENTE",
+    enabled: isDependent,
   });
 
   /* ------- Mutação ------- */
@@ -216,7 +222,7 @@ export default function BeneficiaryForm({
     }
   };
 
-  /** compacta extras dentro de observacoes para não mudar backend */
+  /** compacta extras dentro de observacoes */
   const packExtrasIntoObservacoes = (original?: string) => {
     const filled: Record<string, string> = {};
     for (const key of Object.keys(csvExtras) as CsvExtraKey[]) {
@@ -236,8 +242,8 @@ export default function BeneficiaryForm({
       toast.error("Preencha os campos obrigatórios: Nome, Tipo e Data de Entrada.");
       return;
     }
-    if (tipo === "DEPENDENTE" && !titularId) {
-      toast.error("Para Dependente, selecione o Titular.");
+    if (isDependent && !titularId) {
+      toast.error("Para dependente (FILHO/CONJUGE), selecione o Titular.");
       return;
     }
     if (dataNascimento && dataEntrada && new Date(dataNascimento) > new Date(dataEntrada)) {
@@ -247,13 +253,17 @@ export default function BeneficiaryForm({
 
     const finalFaixa = faixaChoice === "AUTO" ? faixaFromAge(ageFromBirth(dataNascimento)) : faixaChoice;
 
+    const rawCpf = onlyDigits(cpf);
+    const cpfForApi = rawCpf.length === 11 ? rawCpf : undefined;
+
+    const mensalidade = normMoneyForApi(valorMensalidade);
     const payload: BeneficiaryPayload = {
       nomeCompleto: nomeCompleto.trim(),
-      cpf: cpf ? onlyDigits(cpf) : undefined,
-      tipo: tipo as "TITULAR" | "DEPENDENTE",
+      cpf: cpfForApi,
+      tipo: tipo as BenefType,
       dataEntrada,
-      valorMensalidade: valorMensalidade || undefined,
-      titularId: tipo === "DEPENDENTE" ? titularId : undefined,
+      valorMensalidade: mensalidade || undefined,
+      titularId: isDependent ? titularId : undefined,
 
       matricula: matricula || undefined,
       carteirinha: carteirinha || undefined,
@@ -263,7 +273,6 @@ export default function BeneficiaryForm({
       centroCusto: centroCusto || undefined,
       faixaEtaria: finalFaixa || undefined,
 
-      // extras do CSV vão aqui
       observacoes: packExtrasIntoObservacoes(initialValues?.observacoes),
     };
 
@@ -301,7 +310,7 @@ export default function BeneficiaryForm({
                 <Label htmlFor="tipo">Tipo *</Label>
                 <Select
                   value={tipo}
-                  onValueChange={(v: "TITULAR" | "DEPENDENTE") => {
+                  onValueChange={(v: BenefType) => {
                     setTipo(v);
                     setTitularId("");
                   }}
@@ -311,12 +320,13 @@ export default function BeneficiaryForm({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="TITULAR">Titular</SelectItem>
-                    <SelectItem value="DEPENDENTE">Dependente</SelectItem>
+                    <SelectItem value="FILHO">Dependente – Filho(a)</SelectItem>
+                    <SelectItem value="CONJUGE">Dependente – Cônjuge</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              {tipo === "DEPENDENTE" && (
+              {isDependent && (
                 <div>
                   <Label htmlFor="titular">Vincular ao Titular *</Label>
                   <Select value={titularId} onValueChange={setTitularId} disabled={isLoadingTitulares}>
@@ -351,7 +361,15 @@ export default function BeneficiaryForm({
 
               <div>
                 <Label htmlFor="mensalidade">Mensalidade (R$)</Label>
-                <Input id="mensalidade" type="number" step="0.01" value={valorMensalidade} onChange={(e) => setValorMensalidade(e.target.value)} placeholder="123.45" />
+                <Input
+                  id="mensalidade"
+                  type="text"
+                  inputMode="decimal"
+                  value={valorMensalidade}
+                  onChange={(e) => setValorMensalidade(e.target.value)}
+                  placeholder="123.45"
+                />
+                <p className="text-[10px] text-muted-foreground mt-1">Use ponto para decimais (ex.: 123.45)</p>
               </div>
 
               <div>

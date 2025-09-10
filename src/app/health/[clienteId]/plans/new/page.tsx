@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -82,7 +82,6 @@ type ClientPlanPrice = {
 
 export default function ClientPlansPage() {
   const { clienteId } = useParams<{ clienteId: string }>();
-  const router = useRouter();
 
   // ======== STATE LISTA ========
   const [loadingList, setLoadingList] = useState(false);
@@ -119,8 +118,38 @@ export default function ClientPlansPage() {
     regimeCobranca: "MENSAL",
   });
 
-  // Popover do calendário dentro do Dialog
+  // Calendário do Dialog de criação
   const [openCalendar, setOpenCalendar] = useState(false);
+
+  // ======== STATE DIALOG EDIÇÃO DO PLANO ========
+  const [openEdit, setOpenEdit] = useState(false);
+  const [editingPlan, setEditingPlan] = useState<ClientPlanLink | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editIsActive, setEditIsActive] = useState<"true" | "false">("true");
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  // ======== STATE DIALOG EDIÇÃO DE PREÇO ========
+  const [openEditPrice, setOpenEditPrice] = useState(false);
+  const [priceForm, setPriceForm] = useState<{
+    planId: string;
+    priceId: string;
+    valor: string; // máscara BRL
+    faixaEtaria?: string;
+    regimeCobranca?: "MENSAL" | "DIARIO" | "";
+    vigenciaInicio: Date | null;
+    vigenciaFim: Date | null;
+  }>({
+    planId: "",
+    priceId: "",
+    valor: "",
+    faixaEtaria: "",
+    regimeCobranca: "MENSAL",
+    vigenciaInicio: null,
+    vigenciaFim: null,
+  });
+  const [savingPrice, setSavingPrice] = useState(false);
+  const [openCalEditInicio, setOpenCalEditInicio] = useState(false);
+  const [openCalEditFim, setOpenCalEditFim] = useState(false);
 
   // ======== HELPERS ========
   const formatCurrencyBRL = (raw: string) => {
@@ -207,7 +236,7 @@ export default function ClientPlansPage() {
 
   useEffect(() => {
     loadList();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clienteId]);
 
   // ======== HANDLERS DIALOG CADASTRO ========
@@ -279,9 +308,93 @@ export default function ClientPlansPage() {
     }
   };
 
-  // ======== AÇÕES DA TABELA ========
-  const goEdit = (planId: string) => router.push(`/health/plans/${planId}`);
+  // ======== EDIÇÃO DO PLANO ========
+  const openEditDialog = (link: ClientPlanLink) => {
+    setEditingPlan(link);
+    setEditName(link.plan.name ?? "");
+    setEditIsActive(link.plan.isActive ? "true" : "false");
+    setOpenEdit(true);
+  };
 
+  const submitEdit = async () => {
+    if (!editingPlan) return;
+    setSavingEdit(true);
+    try {
+      await apiFetch(`/health/plans/${editingPlan.planId}`, {
+        method: "PATCH",
+        body: {
+          name: editName,
+          isActive: editIsActive === "true",
+        },
+      });
+      toast.success("Plano atualizado.");
+      setOpenEdit(false);
+      setEditingPlan(null);
+      await loadList();
+    } catch (err: any) {
+      toast.error("Falha ao atualizar o plano.", {
+        description: err?.message ?? String(err),
+      });
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  // ======== EDIÇÃO DE PREÇO ========
+  const openEditPriceDialog = (link: ClientPlanLink) => {
+    const lp = latestByPlan[link.planId];
+    const price = lp?.price;
+    if (!price) {
+      toast.error("Nenhum preço encontrado para este plano.");
+      return;
+    }
+    setPriceForm({
+      planId: link.planId,
+      priceId: price.id,
+      valor: brl(price.valor) === "—" ? "" : brl(price.valor),
+      faixaEtaria: price.faixaEtaria ?? "",
+      regimeCobranca: (price.regimeCobranca as any) || "MENSAL",
+      vigenciaInicio: price.vigenciaInicio ? new Date(price.vigenciaInicio) : null,
+      vigenciaFim: price.vigenciaFim ? new Date(price.vigenciaFim) : null,
+    });
+    setOpenEditPrice(true);
+  };
+
+  const submitEditPrice = async () => {
+    if (!priceForm.priceId) return;
+    setSavingPrice(true);
+    try {
+      await apiFetch(
+        `/clients/${clienteId}/plans/prices/${priceForm.priceId}`,
+        {
+          method: "PATCH",
+          body: {
+            valor: parseCurrencyToStringDecimal(priceForm.valor || "0"),
+            faixaEtaria: priceForm.faixaEtaria || undefined,
+            regimeCobranca: priceForm.regimeCobranca || undefined,
+            vigenciaInicio: priceForm.vigenciaInicio
+              ? priceForm.vigenciaInicio.toISOString().slice(0, 10)
+              : undefined,
+            vigenciaFim: priceForm.vigenciaFim
+              ? priceForm.vigenciaFim.toISOString().slice(0, 10)
+              : undefined,
+          },
+        }
+      );
+
+      toast.success("Preço do plano atualizado.");
+      setOpenEditPrice(false);
+      await loadList();
+    } catch (err: any) {
+      toast.error("Falha ao atualizar o preço.", {
+        description: err?.message ?? String(err),
+      });
+    } finally {
+      setSavingPrice(false);
+    }
+  };
+
+  // ======== EXCLUSÃO ========
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -315,15 +428,12 @@ export default function ClientPlansPage() {
                 <Button asChild variant="outline">
                   <Link href={`/health/${clienteId}`}>Voltar</Link>
                 </Button>
-                {/* TORNANDO O DIALOG NÃO-MODAL PARA PERMITIR CLIQUES NO POPOVER */}
+                {/* Dialog de criação (não-modal para permitir o popover do calendário) */}
                 <Dialog open={openCreate} onOpenChange={setOpenCreate} modal={false}>
                   <DialogTrigger asChild>
                     <Button>Novo plano</Button>
                   </DialogTrigger>
-                  <DialogContent
-                    className="max-w-2xl"
-                    onOpenAutoFocus={(e) => e.preventDefault()}
-                  >
+                  <DialogContent className="max-w-2xl" onOpenAutoFocus={(e) => e.preventDefault()}>
                     <DialogHeader>
                       <DialogTitle>Novo plano</DialogTitle>
                     </DialogHeader>
@@ -379,7 +489,6 @@ export default function ClientPlansPage() {
                                   setOpenCalendar(false);
                                 }}
                                 defaultMonth={form.dataVigencia ?? new Date()}
-                                disabled={undefined}
                                 initialFocus
                               />
                             </PopoverContent>
@@ -478,6 +587,7 @@ export default function ClientPlansPage() {
                           <th className="px-3 py-2 text-left font-medium">Valor atual</th>
                           <th className="px-3 py-2 text-left font-medium">Faixa</th>
                           <th className="px-3 py-2 text-left font-medium">Vigência início</th>
+                          <th className="px-3 py-2 text-left font-medium">Vigência fim</th>
                           <th className="px-3 py-2 text-left font-medium">Regime</th>
                           <th className="px-3 py-2 text-right font-medium">Ações</th>
                         </tr>
@@ -497,6 +607,11 @@ export default function ClientPlansPage() {
                                   ? format(new Date(price.vigenciaInicio), "dd/MM/yyyy")
                                   : "—"}
                               </td>
+                              <td className="px-3 py-2">
+                                {price?.vigenciaFim
+                                  ? format(new Date(price.vigenciaFim), "dd/MM/yyyy")
+                                  : "—"}
+                              </td>
                               <td className="px-3 py-2">{price?.regimeCobranca ?? "—"}</td>
                               <td className="px-3 py-2 text-right">
                                 <DropdownMenu>
@@ -507,8 +622,11 @@ export default function ClientPlansPage() {
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent align="end">
                                     <DropdownMenuLabel>Ações</DropdownMenuLabel>
-                                    <DropdownMenuItem onClick={() => goEdit(link.planId)}>
-                                      Editar
+                                    <DropdownMenuItem onClick={() => openEditDialog(link)}>
+                                      Editar plano
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => openEditPriceDialog(link)}>
+                                      Editar preço…
                                     </DropdownMenuItem>
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem
@@ -517,7 +635,7 @@ export default function ClientPlansPage() {
                                         setDeleteTarget({ id: link.plan.id, name: link.plan.name })
                                       }
                                     >
-                                      Excluir…
+                                      Excluir plano…
                                     </DropdownMenuItem>
                                   </DropdownMenuContent>
                                 </DropdownMenu>
@@ -531,6 +649,190 @@ export default function ClientPlansPage() {
                 )}
               </CardContent>
             </Card>
+
+            {/* DIALOG DE EDIÇÃO DO PLANO */}
+            <Dialog open={openEdit} onOpenChange={setOpenEdit}>
+              <DialogContent className="max-w-lg" onOpenAutoFocus={(e) => e.preventDefault()}>
+                <DialogHeader>
+                  <DialogTitle>Editar plano</DialogTitle>
+                </DialogHeader>
+
+                <div className="grid gap-4">
+                  <div className="grid gap-2">
+                    <Label>Slug</Label>
+                    <Input value={editingPlan?.plan.slug ?? ""} disabled />
+                    <p className="text-xs text-muted-foreground">Slug não pode ser alterado.</p>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="editName">Nome</Label>
+                    <Input
+                      id="editName"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>Status</Label>
+                    <Select
+                      value={editIsActive}
+                      onValueChange={(v: "true" | "false") => setEditIsActive(v)}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Selecione" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="true">Ativo</SelectItem>
+                        <SelectItem value="false">Inativo</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <DialogFooter className="gap-2">
+                  <Button variant="ghost" type="button" onClick={() => setOpenEdit(false)}>
+                    Cancelar
+                  </Button>
+                  <Button onClick={submitEdit} disabled={savingEdit}>
+                    {savingEdit ? "Salvando…" : "Salvar alterações"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            {/* DIALOG DE EDIÇÃO DE PREÇO */}
+            <Dialog open={openEditPrice} onOpenChange={setOpenEditPrice} modal={false}>
+              <DialogContent className="max-w-xl" onOpenAutoFocus={(e) => e.preventDefault()}>
+                <DialogHeader>
+                  <DialogTitle>Editar preço do plano</DialogTitle>
+                </DialogHeader>
+
+                <div className="grid gap-6 md:grid-cols-2">
+                  <div className="grid gap-2">
+                    <Label htmlFor="priceValor">Valor</Label>
+                    <Input
+                      id="priceValor"
+                      placeholder="R$ 0,00"
+                      value={priceForm.valor}
+                      onChange={(e) =>
+                        setPriceForm((p) => ({ ...p, valor: formatCurrencyBRL(e.target.value) }))
+                      }
+                      required
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>Regime de Cobrança</Label>
+                    <Select
+                      value={priceForm.regimeCobranca || ""}
+                      onValueChange={(v: "MENSAL" | "DIARIO" | "") =>
+                        setPriceForm((p) => ({ ...p, regimeCobranca: v }))
+                      }
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Selecione" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="MENSAL">Mensal</SelectItem>
+                        <SelectItem value="DIARIO">Diário</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label htmlFor="priceFaixa">Faixa Etária (opcional)</Label>
+                    <Input
+                      id="priceFaixa"
+                      placeholder='Ex.: "29-33" ou "59+"'
+                      value={priceForm.faixaEtaria || ""}
+                      onChange={(e) =>
+                        setPriceForm((p) => ({ ...p, faixaEtaria: e.target.value }))
+                      }
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Label>Vigência início</Label>
+                    <Popover
+                      modal={false}
+                      open={openCalEditInicio}
+                      onOpenChange={setOpenCalEditInicio}
+                    >
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className={cn(
+                            "w-full justify-start text-left font-normal",
+                            !priceForm.vigenciaInicio && "text-muted-foreground"
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {priceForm.vigenciaInicio
+                            ? format(priceForm.vigenciaInicio, "dd/MM/yyyy")
+                            : "Escolha a data"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0 z-50" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={priceForm.vigenciaInicio ?? undefined}
+                          onSelect={(date) => {
+                            setPriceForm((p) => ({ ...p, vigenciaInicio: date ?? null }));
+                            setOpenCalEditInicio(false);
+                          }}
+                          defaultMonth={priceForm.vigenciaInicio ?? new Date()}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+
+                  <div className="grid gap-2 md:col-span-2">
+                    <Label>Vigência fim (opcional)</Label>
+                    <Popover modal={false} open={openCalEditFim} onOpenChange={setOpenCalEditFim}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className={cn(
+                            "w-full justify-start text-left font-normal",
+                            !priceForm.vigenciaFim && "text-muted-foreground"
+                          )}
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {priceForm.vigenciaFim
+                            ? format(priceForm.vigenciaFim, "dd/MM/yyyy")
+                            : "Sem término"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0 z-50" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={priceForm.vigenciaFim ?? undefined}
+                          onSelect={(date) => {
+                            setPriceForm((p) => ({ ...p, vigenciaFim: date ?? null }));
+                            setOpenCalEditFim(false);
+                          }}
+                          defaultMonth={priceForm.vigenciaFim ?? priceForm.vigenciaInicio ?? new Date()}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                </div>
+
+                <DialogFooter className="gap-2">
+                  <Button variant="ghost" type="button" onClick={() => setOpenEditPrice(false)}>
+                    Cancelar
+                  </Button>
+                  <Button onClick={submitEditPrice} disabled={savingPrice || !priceForm.valor}>
+                    {savingPrice ? "Salvando…" : "Salvar preço"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
 
             {/* CONFIRMAÇÃO DE EXCLUSÃO */}
             <AlertDialog open={!!deleteTarget} onOpenChange={(v) => !v && setDeleteTarget(null)}>
