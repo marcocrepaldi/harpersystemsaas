@@ -76,16 +76,15 @@ export default function DocumentTable({ clientId, refreshKey }: Props) {
 
   async function handleDownload(doc: DocumentFromApi) {
     try {
-      const res = await fetch(
-        `/api/clients/${encodeURIComponent(clientId)}/documents/${encodeURIComponent(doc.id)}/download`,
-        { credentials: 'include', headers: { Authorization: '' } }
+      const blob = await apiFetch<Blob>(
+        `/clients/${encodeURIComponent(clientId)}/documents/${encodeURIComponent(doc.id)}/download`,
+        { method: 'GET', responseType: 'blob' }
       );
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = doc.filename;
+      a.download = doc.filename || 'download';
       document.body.appendChild(a);
       a.click();
       a.remove();

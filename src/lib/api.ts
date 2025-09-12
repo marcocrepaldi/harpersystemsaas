@@ -17,7 +17,7 @@ export type ApiFetchOptions = {
   >;
   /** Evita redirecionar automaticamente para /login em 401 */
   skipAuthRedirect?: boolean;
-  /** Permite trocar a base puntualmente (padrão vem do .env) */
+  /** Permite trocar a base puntualmente (padrão vem do .env / window) */
   baseUrl?: string;
   /** Suporte a AbortController */
   signal?: AbortSignal | null;
@@ -34,9 +34,23 @@ export type ApiFetchOptions = {
   onUnauthorized?: () => void;
 };
 
-const DEFAULT_BASE =
-  (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "") ||
-  "http://localhost:3001/api";
+/** Base URL dinâmica:
+ *  1) NEXT_PUBLIC_API_BASE_URL (se definida)
+ *  2) window.location.origin + '/api' no browser
+ *  3) fallback: http://localhost:3001/api (SSR/dev)
+ */
+function getDefaultBase(): string {
+  const envBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/+$/, "");
+  if (envBase) return envBase;
+
+  if (typeof window !== "undefined") {
+    // Garante um /api “local” à origem atual (www em produção)
+    const url = new URL("/api", window.location.origin).toString();
+    return url.replace(/\/+$/, "");
+  }
+
+  return "http://localhost:3001/api";
+}
 
 /** ---------------- Tokens em memória + LocalStorage ---------------- */
 type StoredUser =
@@ -107,47 +121,35 @@ function isAbsoluteUrl(path: string) {
   return /^https?:\/\//i.test(path) || /^\/\//.test(path);
 }
 
-function buildUrl(
-  path: string,
-  baseUrl?: string,
-  query?: ApiFetchOptions["query"]
-) {
-  // Se já for absoluta, só aplica query
-  if (isAbsoluteUrl(path)) {
-    const url = new URL(path, typeof window !== "undefined" ? window.location.origin : "http://localhost");
-    if (query) {
-      Object.entries(query).forEach(([k, v]) => {
-        if (Array.isArray(v)) {
-          v.forEach((item) => {
-            if (item === undefined || item === null || item === "") return;
-            url.searchParams.append(k, String(item));
-          });
-          return;
-        }
-        if (v === undefined || v === null || v === "") return;
-        url.searchParams.set(k, String(v));
+function applyQuery(url: URL, query?: ApiFetchOptions["query"]) {
+  if (!query) return;
+  Object.entries(query).forEach(([k, v]) => {
+    if (Array.isArray(v)) {
+      v.forEach((item) => {
+        if (item === undefined || item === null || item === "") return;
+        url.searchParams.append(k, String(item));
       });
+      return;
     }
+    if (v === undefined || v === null || v === "") return;
+    url.searchParams.set(k, String(v));
+  });
+}
+
+function buildUrl(path: string, baseUrl?: string, query?: ApiFetchOptions["query"]) {
+  if (isAbsoluteUrl(path)) {
+    const url = new URL(
+      path,
+      typeof window !== "undefined" ? window.location.origin : "http://localhost"
+    );
+    applyQuery(url, query);
     return url.toString();
   }
 
-  const base = (baseUrl || DEFAULT_BASE).replace(/\/+$/, "");
+  const base = (baseUrl || getDefaultBase()).replace(/\/+$/, "");
   const clean = path.startsWith("/") ? path : `/${path}`;
   const url = new URL(`${base}${clean}`);
-
-  if (query) {
-    Object.entries(query).forEach(([k, v]) => {
-      if (Array.isArray(v)) {
-        v.forEach((item) => {
-          if (item === undefined || item === null || item === "") return;
-          url.searchParams.append(k, String(item));
-        });
-        return;
-      }
-      if (v === undefined || v === null || v === "") return;
-      url.searchParams.set(k, String(v));
-    });
-  }
+  applyQuery(url, query);
   return url.toString();
 }
 
@@ -172,7 +174,6 @@ function ensureSerializedBody(body: any, headers: Headers) {
     if (isFormLike(body) && headers.has("Content-Type")) {
       headers.delete("Content-Type");
     }
-    // Para URLSearchParams, se header não for definido, o browser define o correto.
     return body;
   }
 
@@ -195,7 +196,6 @@ function ensureSerializedBody(body: any, headers: Headers) {
         usp.set(k, String(v));
       }
     });
-    // o browser definirá o header correto com charset
     headers.delete("Content-Type");
     return usp;
   }
@@ -240,7 +240,6 @@ async function resolveResponse<T>(
   if (forcedType === "blob") return (await res.blob()) as unknown as T;
   if (forcedType === "text") return (await res.text()) as unknown as T;
   if (forcedType === "json") {
-    // tenta json; se falhar, devolve string
     const text = await res.text();
     try {
       return JSON.parse(text) as T;
@@ -263,7 +262,6 @@ async function resolveResponse<T>(
     try {
       return JSON.parse(text) as T;
     } catch {
-      // fallback para JSONL ou resposta não-JSON com header errado
       return text as unknown as T;
     }
   }
@@ -305,10 +303,11 @@ export async function apiFetch<T = unknown>(
     headers.set("X-Requested-With", "XMLHttpRequest");
   }
 
-  // Tenant
+  // Tenant (envia ambos se não vierem)
   const tenant = detectTenantSlug();
-  if (tenant && !headers.has("x-tenant-subdomain")) {
-    headers.set("x-tenant-subdomain", tenant);
+  if (tenant) {
+    if (!headers.has("x-tenant-subdomain")) headers.set("x-tenant-subdomain", tenant);
+    if (!headers.has("x-tenant-slug")) headers.set("x-tenant-slug", tenant);
   }
 
   // Auth
@@ -344,7 +343,6 @@ export async function apiFetch<T = unknown>(
       credentials: "same-origin",
       cache: "no-store",
       signal: finalSignal,
-      // redirect: "follow" // default
     });
   };
 
@@ -361,10 +359,9 @@ export async function apiFetch<T = unknown>(
       // retryable: espera Retry-After ou fallback
       if (attempt === retries) break;
       const ra = parseRetryAfter(res.headers.get("Retry-After"));
-      await sleep(ra ?? retryDelayMs * Math.pow(2, attempt)); // backoff exponencial simples
+      await sleep(ra ?? retryDelayMs * Math.pow(2, attempt)); // backoff exponencial
     } catch (e) {
       lastErr = e;
-      // só tentar de novo em erros de rede/Abort? tentamos até limite
       if (attempt === retries) break;
       await sleep(retryDelayMs * Math.pow(2, attempt));
     }
@@ -391,12 +388,13 @@ export async function apiFetch<T = unknown>(
         } catch {
           // ignore
         }
-        // Evita múltiplos redirects simultâneos
+        // Redireciona com tenant + next
         const w = window as any;
         if (!w.__redirectingToLogin) {
           w.__redirectingToLogin = true;
           const next = encodeURIComponent(window.location.pathname + window.location.search);
-          window.location.href = `/login?next=${next}`;
+          const qs = tenant ? `tenant=${encodeURIComponent(tenant)}&next=${next}` : `next=${next}`;
+          window.location.href = `/login?${qs}`;
         }
       }
     }
