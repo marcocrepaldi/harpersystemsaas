@@ -1,0 +1,30 @@
+# dependências e builds locais
+node_modules
+.next
+out
+coverage
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# VCS / IDE
+.git
+.gitignore
+.vscode
+.idea
+
+# SO
+.DS_Store
+Thumbs.db
+
+# envs (produção/QA via env_file no compose)
+.env
+.env.*
+!.env.example
+
+# caches/monorepo
+.npm
+.pnpm-store
+.turbo
+.cache
